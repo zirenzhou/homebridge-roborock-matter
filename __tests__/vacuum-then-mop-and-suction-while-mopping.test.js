@@ -317,3 +317,47 @@ describe("capability", () => {
     expect(supportsMaxPlusFanPower("roborock.vacuum.a225")).toBe(true);
   });
 });
+
+describe("the settings probe", () => {
+  test("never asks for the dock's serial number, and keeps only flags and totals", async () => {
+    const api = new Roborock({
+      log: {
+        debug: jest.fn(),
+        info: jest.fn(),
+        warn: jest.fn(),
+        error: jest.fn(),
+      },
+      storagePath: fs.mkdtempSync(path.join(os.tmpdir(), "roborock-probe-")),
+    });
+    const asked = [];
+    api.messageQueueHandler = {
+      sendRequest: jest.fn(async (duid, method) => {
+        asked.push(method);
+        if (method === "app_get_init_status") {
+          return [
+            {
+              local_info: { timezone: "Somewhere/City", location: "xx" },
+              feature_info: [111],
+              new_feature_info_str: "2" + "0".repeat(23),
+            },
+          ];
+        }
+        if (method === "get_clean_summary") {
+          return { clean_count: 3, records: [1, 2, 3] };
+        }
+        return "ok";
+      }),
+    };
+    api.describeDevice = () => "robot";
+    api.getProductAttribute = () => "roborock.vacuum.a225";
+    const answers = await api.probeDockSettings("d");
+
+    expect(asked).not.toContain("get_dock_info");
+    expect(asked).not.toContain("get_network_info");
+    expect(asked).not.toContain("get_serial_number");
+    expect(asked.every((method) => /^(get|app_get)_/.test(method))).toBe(true);
+    expect(JSON.stringify(answers)).not.toContain("Somewhere/City");
+    expect(answers.app_get_init_status.feature_info).toEqual([111]);
+    expect(answers.get_clean_summary).toEqual({ clean_count: 3, records: 3 });
+  });
+});

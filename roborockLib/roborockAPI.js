@@ -421,7 +421,8 @@ const dockingStationStates = [
 // identity (get_serial_number, get_random_pkey), the camera and its video
 // sessions (get_camera_status, get_device_sdp/ice, get_turn_server,
 // get_homesec_connect_status, get_photo), voice history, locale and timezone,
-// and every map read (the map camera has its own path).
+// and every map read (the map camera has its own path). get_dock_info is out
+// too: on the a225 it answers with the dock's serial number.
 const READ_ONLY_PROBE_METHODS = [
   "get_status",
   "app_get_init_status",
@@ -437,7 +438,6 @@ const READ_ONLY_PROBE_METHODS = [
   "get_dust_collection_switch_status",
   "get_dust_collection_mode",
   "app_get_dryer_setting",
-  "get_dock_info",
   "get_consumable",
   "get_clean_summary",
   "get_server_timer",
@@ -463,6 +463,34 @@ const READ_ONLY_PROBE_METHODS = [
   "app_get_robot_setting",
   "app_get_clean_estimate_info",
 ];
+
+/**
+ * What of a probe answer is worth keeping. The init status also names the
+ * robot's region, timezone and log server, and the clean summary lists when
+ * every past clean began; only the feature flags and the totals are kept.
+ */
+function keepProbeAnswerPrivate(method, answer) {
+  const first = Array.isArray(answer) ? answer[0] : answer;
+  if (method === "app_get_init_status" && first && typeof first === "object") {
+    const {
+      feature_info,
+      new_feature_info,
+      new_feature_info_str,
+      carriage_type,
+    } = first;
+    return {
+      feature_info,
+      new_feature_info,
+      new_feature_info_str,
+      carriage_type,
+    };
+  }
+  if (method === "get_clean_summary" && first && typeof first === "object") {
+    const { records, ...totals } = first;
+    return { ...totals, records: Array.isArray(records) ? records.length : 0 };
+  }
+  return answer;
+}
 
 const SIMPLE_VACUUM_COMMANDS = new Set([
   "app_zoned_clean",
@@ -6846,13 +6874,16 @@ class Roborock {
     const answers = {};
     for (const method of READ_ONLY_PROBE_METHODS) {
       try {
-        answers[method] = await this.messageQueueHandler.sendRequest(
-          duid,
+        answers[method] = keepProbeAnswerPrivate(
           method,
-          [],
-          false,
-          false,
-          { preferCloud: true, requestTimeoutMs: 15000 }
+          await this.messageQueueHandler.sendRequest(
+            duid,
+            method,
+            [],
+            false,
+            false,
+            { preferCloud: true, requestTimeoutMs: 15000 }
+          )
         );
       } catch (error) {
         answers[method] =
