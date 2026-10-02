@@ -1592,11 +1592,18 @@ export default class RoborockPlatform implements DynamicPlatformPlugin {
    * status line, and the look the user picked.
    */
   getMapSceneContext(duid: string): MapSceneContext {
+    const sequence: number[] =
+      this.roborockAPI.getCachedCleanSequence?.(duid) ?? [];
     const rooms = (this.roborockAPI.getRoomMappingsForDevice?.(duid) ?? [])
-      .map((room: any) => ({
-        id: Number(room?.segmentId),
-        name: String(room?.name ?? ""),
-      }))
+      .map((room: any) => {
+        const id = Number(room?.segmentId);
+        const position = sequence.indexOf(id);
+        return {
+          id,
+          name: String(room?.name ?? ""),
+          ...(position >= 0 ? { order: position + 1 } : {}),
+        };
+      })
       .filter((room: { id: number }) => Number.isFinite(room.id));
     const read = (property: string) =>
       Number(this.roborockAPI.getVacuumDeviceStatus?.(duid, property));
@@ -1631,6 +1638,10 @@ export default class RoborockPlatform implements DynamicPlatformPlugin {
         active: cleaning,
       },
       theme: theme === "day" || theme === "night" ? theme : "auto",
+      rotation:
+        ([90, 180, 270] as const).find(
+          (degrees) => Number(this.platformConfig.mapCameraRotation) === degrees
+        ) ?? 0,
       furnitureNames,
     };
   }
@@ -1649,6 +1660,13 @@ export default class RoborockPlatform implements DynamicPlatformPlugin {
     }
 
     const cleaning = vacuum.getHomeKitStateSensorValue("cleaning");
+    // The badge numbers; throttled in the API, so this costs one request
+    // every half hour at most.
+    if (cleaning === false) {
+      void this.roborockAPI
+        .refreshCleanSequence?.(duid)
+        ?.catch?.(() => undefined);
+    }
     if (cleaning === true) {
       void this.roborockAPI
         .refreshLiveRoomForDevice?.(duid, {})

@@ -236,6 +236,18 @@
           { "title": "Always dark", "enum": ["night"] }
         ]
       },
+      "mapCameraRotation": {
+        "title": "Map Camera Rotation",
+        "description": "Turn the map clockwise to match the orientation you use in the Roborock app.",
+        "type": "integer",
+        "default": 0,
+        "oneOf": [
+          { "title": "0°", "enum": [0] },
+          { "title": "90°", "enum": [90] },
+          { "title": "180°", "enum": [180] },
+          { "title": "270°", "enum": [270] }
+        ]
+      },
       "mapFurnitureNames": {
         "title": "Furniture Names (Map Camera)",
         "description": "Optional names for the furniture codes the robot stores, e.g. {\"43\": \"双人床\"}. The plugin logs the codes it finds on your map; no public source maps them to names.",

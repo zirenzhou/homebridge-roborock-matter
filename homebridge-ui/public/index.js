@@ -22,6 +22,8 @@ const elements = {
   homeKitActionPause: document.getElementById("homekit-action-pause"),
   homeKitActionLocate: document.getElementById("homekit-action-locate"),
   enableMapCamera: document.getElementById("enable-map-camera"),
+  mapCameraRotation: document.getElementById("map-camera-rotation"),
+  mapCameraTheme: document.getElementById("map-camera-theme"),
   enableHomeKitStateSensors: document.getElementById(
     "enable-homekit-state-sensors"
   ),
@@ -195,6 +197,20 @@ async function loadConfig() {
     }
     if (elements.enableMapCamera) {
       elements.enableMapCamera.checked = config.enableMapCamera === true;
+    }
+    if (elements.mapCameraRotation) {
+      elements.mapCameraRotation.value = String(
+        [90, 180, 270].includes(Number(config.mapCameraRotation))
+          ? Number(config.mapCameraRotation)
+          : 0
+      );
+    }
+    if (elements.mapCameraTheme) {
+      elements.mapCameraTheme.value = ["day", "night"].includes(
+        config.mapCameraTheme
+      )
+        ? config.mapCameraTheme
+        : "auto";
     }
     applyActionSwitchSelection(readActionSwitchSelection(config));
     applyStateSensorSelection(readStateSensorSelection(config));
@@ -685,6 +701,8 @@ function getFormValues() {
     ),
     homeKitStateSensors: getSavedStateSensorSelection(),
     enableMapCamera: Boolean(elements.enableMapCamera?.checked),
+    mapCameraRotation: Number(elements.mapCameraRotation?.value ?? 0) || 0,
+    mapCameraTheme: elements.mapCameraTheme?.value || "auto",
     enableHomeKitScheduleSwitches: Boolean(
       elements.homeKitActionSchedules?.checked
     ),

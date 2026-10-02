@@ -452,6 +452,32 @@ const MATTER_CLEAN_TYPE_PREP_LABELS = new Set(["water mode", "clean type"]);
 // switching maps on every poll cycle.
 const SERVICE_AREA_ROOM_MAP_REFRESH_TTL_MS = 6 * 60 * 60 * 1000;
 
+/**
+ * The first list of integers in an answer, however it is wrapped: robots
+ * answer [3, 1, 2], [[3, 1, 2]] or {"sequence": [...]} for the same thing.
+ * @param {unknown} value
+ * @returns {number[] | null}
+ */
+function findIntegerList(value) {
+  if (Array.isArray(value)) {
+    if (value.length > 0 && value.every((item) => Number.isInteger(item))) {
+      return value;
+    }
+    for (const item of value) {
+      const found = findIntegerList(item);
+      if (found) return found;
+    }
+    return null;
+  }
+  if (value && typeof value === "object") {
+    for (const item of Object.values(value)) {
+      const found = findIntegerList(item);
+      if (found) return found;
+    }
+  }
+  return null;
+}
+
 class Roborock {
   constructor(options) {
     this.bInited = false;
@@ -6637,6 +6663,61 @@ class Roborock {
         `Map listener for ${duid} failed: ${error?.message || error}`
       );
     }
+  }
+
+  /**
+   * The robot's clean sequence — the order its rooms are cleaned in, which
+   * the Roborock app shows as the numbers on its room badges. Read at most
+   * every 30 minutes and cached; null until the robot has answered.
+   * @param {string} duid
+   * @returns {number[] | null} segment ids, first to last
+   */
+  getCachedCleanSequence(duid) {
+    return this._cleanSequences?.get(duid)?.sequence ?? null;
+  }
+
+  /**
+   * @param {string} duid
+   * @returns {Promise<number[] | null>}
+   */
+  async refreshCleanSequence(duid) {
+    if (!this._cleanSequences) {
+      this._cleanSequences = new Map();
+    }
+    const entry = this._cleanSequences.get(duid) ?? {
+      sequence: null,
+      attemptedAt: 0,
+      logged: "",
+    };
+    this._cleanSequences.set(duid, entry);
+    if (Date.now() - entry.attemptedAt < 30 * 60 * 1000) {
+      return entry.sequence;
+    }
+    entry.attemptedAt = Date.now();
+    try {
+      const answer = await this.messageQueueHandler.sendRequest(
+        duid,
+        "get_clean_sequence",
+        [],
+        false
+      );
+      const sequence = findIntegerList(answer);
+      if (sequence) {
+        entry.sequence = sequence;
+        const text = sequence.join(", ");
+        if (text !== entry.logged) {
+          entry.logged = text;
+          this.log.info(
+            `Clean sequence for ${this.describeDevice(duid)}: rooms ${text}.`
+          );
+        }
+      }
+    } catch (error) {
+      this.log.debug(
+        `get_clean_sequence for ${duid} failed: ${error?.message || error}`
+      );
+    }
+    return entry.sequence;
   }
 
   /**

@@ -254,3 +254,74 @@ describe("the picture", () => {
     expect(scene.renderSceneJpeg({ map: plan() }, 640, 360)).toBeNull();
   });
 });
+
+describe("matching the app", () => {
+  /** Room 16 on the left, room 17 on the right, one stray obstacle in 16. */
+  function sideBySide() {
+    return parseClassicMap(
+      buildRRMap({
+        width: 40,
+        height: 20,
+        pixel: (x, row) => {
+          if (x === 0 || x === 39 || row === 0 || row === 19 || x === 20) {
+            return PIXEL.WALL;
+          }
+          if (x === 10 && row === 10) return PIXEL.WALL; // a chair leg
+          return PIXEL.room(x < 20 ? 16 : 17);
+        },
+      })
+    );
+  }
+
+  function rgbAt(jpeg, x, y) {
+    const img = decode(jpeg);
+    const i = (y * img.width + x) * 4;
+    return [img.data[i], img.data[i + 1], img.data[i + 2]];
+  }
+
+  test("a turned plan puts the left room on the right", () => {
+    const map = sideBySide();
+    const plain = scene.renderSceneJpeg({ map, theme: "day" }, 400, 200);
+    const turned = scene.renderSceneJpeg(
+      { map, theme: "day", rotation: 180 },
+      400,
+      200
+    );
+    const close = (a, b) => a.every((v, i) => Math.abs(v - b[i]) < 12);
+    expect(close(rgbAt(plain, 120, 60), rgbAt(turned, 280, 140))).toBe(true);
+    expect(close(rgbAt(plain, 120, 60), rgbAt(plain, 280, 60))).toBe(false);
+  });
+
+  test("something standing in a room is shaded in the room's ink, not drawn as a wall", () => {
+    const map = sideBySide();
+    // 400 px for 40 + 10 grid units of plan and margin: the leg sits near
+    // (10.5, 9.5) in grid units from the top-left of the plan.
+    const jpeg = scene.renderSceneJpeg({ map, theme: "day" }, 400, 200);
+    const wall = rgbAt(jpeg, 200, 100); // the dividing wall at x = 20
+    const scale = Math.min(360 / 40, 180 / 20);
+    const left = (400 - 40 * scale) / 2;
+    const top = (200 - 20 * scale) / 2;
+    const leg = rgbAt(
+      jpeg,
+      Math.round(left + 10.5 * scale),
+      Math.round(top + 9.5 * scale)
+    );
+    expect(leg).not.toEqual(wall);
+  });
+
+  test("the badges follow the clean sequence when it is known", () => {
+    expect(() =>
+      scene.renderSceneJpeg(
+        {
+          map: sideBySide(),
+          rooms: [
+            { id: 16, name: "A", order: 2 },
+            { id: 17, name: "B", order: 1 },
+          ],
+        },
+        640,
+        360
+      )
+    ).not.toThrow();
+  });
+});

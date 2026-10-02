@@ -41,6 +41,7 @@ export type MapSceneContext = {
   rooms: SceneRoom[];
   status: SceneStatus | null;
   theme: "auto" | "day" | "night";
+  rotation: 0 | 90 | 180 | 270;
   furnitureNames: Record<number, string>;
 };
 
@@ -389,6 +390,8 @@ export default class RoborockMapCameraAccessory
       this.mapVersion,
       JSON.stringify(context?.status ?? null),
       context?.theme ?? "auto",
+      context?.rotation ?? 0,
+      JSON.stringify(context?.rooms ?? []),
       Math.round(daylightAt(now) * 20),
     ].join("|");
     let frame = this.frameCache.get(key);
@@ -400,6 +403,7 @@ export default class RoborockMapCameraAccessory
             rooms: context?.rooms,
             status: context?.status,
             theme: context?.theme,
+            rotation: context?.rotation,
             furnitureNames: context?.furnitureNames,
             now,
             updatedAt: this.mapReceivedAt ? new Date(this.mapReceivedAt) : null,

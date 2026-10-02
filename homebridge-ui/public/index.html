@@ -355,6 +355,26 @@
         >
       </span>
     </label>
+    <div id="map-camera-options" class="checkbox-group">
+      <label class="field">
+        <span>Map orientation</span>
+        <select id="map-camera-rotation">
+          <option value="0">As the robot stores it</option>
+          <option value="90">Turned 90° clockwise</option>
+          <option value="180">Turned 180°</option>
+          <option value="270">Turned 270° clockwise</option>
+        </select>
+        <small>Match the way the map faces in the Roborock app.</small>
+      </label>
+      <label class="field">
+        <span>Look</span>
+        <select id="map-camera-theme">
+          <option value="auto">Light by day, dark by night</option>
+          <option value="day">Always light</option>
+          <option value="night">Always dark</option>
+        </select>
+      </label>
+    </div>
 
     <div id="homekit-switch-pairing" class="pairing-callout hidden">
       <h3>

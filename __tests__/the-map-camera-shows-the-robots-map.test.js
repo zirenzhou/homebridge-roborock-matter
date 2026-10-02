@@ -471,3 +471,35 @@ describe("the API layer", () => {
     ).resolves.not.toThrow();
   });
 });
+
+describe("the clean sequence", () => {
+  function api(answer) {
+    const roborock = new Roborock({
+      log: {
+        debug: jest.fn(),
+        info: jest.fn(),
+        warn: jest.fn(),
+        error: jest.fn(),
+      },
+      storagePath: tempStorage(),
+    });
+    roborock.messageQueueHandler = { sendRequest: jest.fn(async () => answer) };
+    return roborock;
+  }
+
+  test("is read however the robot wraps it, and cached", async () => {
+    for (const answer of [[3, 1, 2], [[3, 1, 2]], { sequence: [3, 1, 2] }]) {
+      const roborock = api(answer);
+      expect(await roborock.refreshCleanSequence("duid-1")).toEqual([3, 1, 2]);
+      expect(roborock.getCachedCleanSequence("duid-1")).toEqual([3, 1, 2]);
+      await roborock.refreshCleanSequence("duid-1");
+      expect(roborock.messageQueueHandler.sendRequest).toHaveBeenCalledTimes(1);
+    }
+  });
+
+  test("an answer without one leaves the badges on room ids", async () => {
+    const roborock = api(["ok"]);
+    expect(await roborock.refreshCleanSequence("duid-1")).toBeNull();
+    expect(roborock.getCachedCleanSequence("duid-1")).toBeNull();
+  });
+});

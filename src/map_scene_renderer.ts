@@ -181,7 +181,12 @@ export function paletteFor(daylight: number): Palette {
 // The scene.
 // ---------------------------------------------------------------------------
 
-export type SceneRoom = { id: number; name: string };
+export type SceneRoom = {
+  id: number;
+  name: string;
+  /** Position in the robot's clean sequence: the number on the app's badge. */
+  order?: number;
+};
 
 export type SceneStatus = {
   /** The robot's name. */
@@ -207,6 +212,8 @@ export type SceneInput = {
   updatedAt?: Date | null;
   /** Force a look instead of following the clock. */
   theme?: "auto" | "day" | "night";
+  /** Turn the plan, clockwise, to match the orientation set in the app. */
+  rotation?: 0 | 90 | 180 | 270;
   /**
    * Names for furniture type codes. The robot stores a code per piece and no
    * public source maps codes to names, so names appear only for codes listed
@@ -234,6 +241,11 @@ type Geometry = {
   walls: Loop[];
   rooms: RoomGeometry[];
   carpet: Loop[];
+  /**
+   * Obstacle pixels inside a single room — furniture legs, clutter. The app
+   * shades these in the room's own ink and keeps grey for walls proper.
+   */
+  clutter: Map<number, Loop[]>;
   /** Room id under each top-down grid pixel, 0 for none. */
   roomAt: Uint8Array;
 };
@@ -326,6 +338,51 @@ function buildGeometry(map: ClassicMap): Geometry {
       simplifyLoop(loop, epsilon)
     );
 
+  // A wall pixel that sees the outside, or two rooms, within two pixels is
+  // a wall; one that only sees a single room is something standing in it.
+  const clutterMasks = new Map<number, Uint8Array>();
+  for (let y = 0; y < height; y++) {
+    for (let x = 0; x < width; x++) {
+      const i = y * width + x;
+      if (!walls[i]) continue;
+      let room = 0;
+      let structural = false;
+      for (let dy = -2; dy <= 2 && !structural; dy++) {
+        for (let dx = -2; dx <= 2; dx++) {
+          const nx = x + dx;
+          const ny = y + dy;
+          if (nx < 0 || ny < 0 || nx >= width || ny >= height) {
+            structural = true;
+            break;
+          }
+          const j = ny * width + nx;
+          if (!footprint[j]) {
+            structural = true;
+            break;
+          }
+          const id = roomAt[j];
+          if (id && room && id !== room) {
+            structural = true;
+            break;
+          }
+          if (id) room = id;
+        }
+      }
+      if (structural || !room) continue;
+      walls[i] = 0;
+      let mask = clutterMasks.get(room);
+      if (!mask) {
+        mask = new Uint8Array(width * height);
+        clutterMasks.set(room, mask);
+      }
+      mask[i] = 1;
+    }
+  }
+  const clutter = new Map<number, Loop[]>();
+  for (const [room, mask] of clutterMasks) {
+    clutter.set(room, outline(mask, 0.5));
+  }
+
   let carpet: Loop[] = [];
   if (map.carpet && map.carpet.length >= width * height) {
     const mask = new Uint8Array(width * height);
@@ -413,6 +470,7 @@ function buildGeometry(map: ClassicMap): Geometry {
     walls: outline(walls, 0.75),
     rooms,
     carpet,
+    clutter,
     roomAt,
   };
 }
@@ -519,30 +577,73 @@ export function renderSceneJpeg(
   }
   const geometry = geometryOf(map);
 
-  // Fit the plan below the header.
-  const headerHeight = input.status ? unit * (compact ? 15 : 13) : 0;
-  const padding = unit * 5;
-  const bounds = boundsOf(map, geometry);
-  const spanX = bounds.maxX - bounds.minX;
-  const spanY = bounds.maxY - bounds.minY;
-  const availableW = width - padding * 2;
-  const availableH = height - padding * 2 - headerHeight;
-  const scale = Math.max(
-    Math.min(availableW / spanX, availableH / spanY),
-    0.05
-  );
-  const offsetX = (width - spanX * scale) / 2 - bounds.minX * scale;
-  const offsetY =
-    headerHeight +
-    padding +
-    (availableH - spanY * scale) / 2 -
-    bounds.minY * scale;
-
-  const project = (gx: number, gy: number): [number, number] => [
-    offsetX + gx * scale,
-    offsetY + gy * scale,
+  // Turn the plan as the app does, then fit it. The header only claims a
+  // band of its own when the plan would otherwise run under it.
+  const rotation = input.rotation ?? 0;
+  const [ca, sa] =
+    rotation === 90
+      ? [0, 1]
+      : rotation === 180
+        ? [-1, 0]
+        : rotation === 270
+          ? [0, -1]
+          : [1, 0];
+  const turn = (gx: number, gy: number): [number, number] => [
+    ca * gx - sa * gy,
+    sa * gx + ca * gy,
   ];
-  const onPlan = () => ctx.setTransform(scale, 0, 0, scale, offsetX, offsetY);
+  const bounds = boundsOf(map, geometry);
+  const corners = [
+    turn(bounds.minX, bounds.minY),
+    turn(bounds.maxX, bounds.minY),
+    turn(bounds.minX, bounds.maxY),
+    turn(bounds.maxX, bounds.maxY),
+  ];
+  const minRX = Math.min(...corners.map((c) => c[0]));
+  const maxRX = Math.max(...corners.map((c) => c[0]));
+  const minRY = Math.min(...corners.map((c) => c[1]));
+  const maxRY = Math.max(...corners.map((c) => c[1]));
+  const spanX = maxRX - minRX;
+  const spanY = maxRY - minRY;
+  const padding = unit * 5;
+  const layout = (headerBand: number) => {
+    const availableW = width - padding * 2;
+    const availableH = height - padding * 2 - headerBand;
+    const fit = Math.max(
+      Math.min(availableW / spanX, availableH / spanY),
+      0.05
+    );
+    return {
+      scale: fit,
+      offsetX: (width - spanX * fit) / 2 - minRX * fit,
+      offsetY:
+        headerBand + padding + (availableH - spanY * fit) / 2 - minRY * fit,
+    };
+  };
+  let { scale, offsetX, offsetY } = layout(0);
+  if (input.status) {
+    const left = offsetX + minRX * scale;
+    const top = offsetY + minRY * scale;
+    const headerRight = width * (compact ? 0.5 : 0.32);
+    const headerBottom = unit * (compact ? 15 : 13);
+    if (left < headerRight && top < headerBottom) {
+      ({ scale, offsetX, offsetY } = layout(headerBottom));
+    }
+  }
+
+  const project = (gx: number, gy: number): [number, number] => {
+    const [rx, ry] = turn(gx, gy);
+    return [offsetX + rx * scale, offsetY + ry * scale];
+  };
+  const onPlan = () =>
+    ctx.setTransform(
+      ca * scale,
+      sa * scale,
+      -sa * scale,
+      ca * scale,
+      offsetX,
+      offsetY
+    );
   const flat = () => ctx.setTransform(1, 0, 0, 1, 0, 0);
   const px = (screen: number) => screen / scale;
 
@@ -559,6 +660,13 @@ export function renderSceneJpeg(
     drawFloorTexture(ctx, map, room, colour.ink, palette.textureAlpha, px);
   }
   drawCarpet(ctx, geometry, palette, px);
+  for (const room of geometry.rooms) {
+    const loops = geometry.clutter.get(room.id);
+    if (!loops) continue;
+    ctx.fillStyle = rgba(palette.rooms[room.color].ink, 0.42);
+    tracePath(ctx, loops);
+    ctx.fill("nonzero");
+  }
   drawFurniture(ctx, map, geometry, palette, px);
 
   // The cleaned area: the path widened to the robot's width and washed white,
@@ -581,7 +689,7 @@ export function renderSceneJpeg(
   drawVirtualWalls(ctx, map, project, unit);
   drawObstacles(ctx, map, palette, project, unit);
   drawDock(ctx, map, project, scale, unit);
-  drawRobot(ctx, map, project, scale, unit);
+  drawRobot(ctx, map, project, turn, scale, unit);
   drawRoomLabels(
     ctx,
     geometry,
@@ -703,29 +811,34 @@ function drawCarpet(
   px: (screen: number) => number
 ): void {
   if (geometry.carpet.length === 0) return;
-  // As the app marks a rug: a darker patch of the room with rounded edges
-  // and a scatter of pile dots, in the ink of the room it lies in.
+  // As the app marks a rug: a darker patch of the room it lies in, with a
+  // scatter of pile dots, in that room's ink.
   const xs = geometry.carpet.flatMap((loop) => loop.map((p) => p[0]));
   const ys = geometry.carpet.flatMap((loop) => loop.map((p) => p[1]));
   const x0 = Math.min(...xs);
   const x1 = Math.max(...xs);
   const y0 = Math.min(...ys);
   const y1 = Math.max(...ys);
-  ctx.save();
-  tracePath(ctx, geometry.carpet);
-  ctx.clip("nonzero");
-  for (let y = Math.floor(y0); y < y1; y += 3) {
-    for (let x = Math.floor(x0) + ((y / 3) % 2) * 1.5; x < x1; x += 3) {
-      const ink = inkAt(geometry, palette, x, y);
-      ctx.fillStyle = rgba(ink, 0.2);
-      ctx.fillRect(x - 1.5, y - 1.5, 3, 3);
-      ctx.fillStyle = rgba(ink, 0.32);
-      ctx.beginPath();
-      ctx.arc(x, y, px(1.3), 0, Math.PI * 2);
-      ctx.fill();
+  for (const room of geometry.rooms) {
+    const ink = palette.rooms[room.color].ink;
+    ctx.save();
+    tracePath(ctx, room.loops);
+    ctx.clip("nonzero");
+    tracePath(ctx, geometry.carpet);
+    ctx.clip("nonzero");
+    ctx.fillStyle = rgba(ink, 0.2);
+    ctx.fillRect(x0, y0, x1 - x0, y1 - y0);
+    ctx.fillStyle = rgba(ink, 0.3);
+    for (let y = Math.floor(y0); y < y1; y += 3) {
+      const shift = (Math.round(y / 3) % 2) * 1.5;
+      for (let x = Math.floor(x0) + shift; x < x1; x += 3) {
+        ctx.beginPath();
+        ctx.arc(x, y, px(1.2), 0, Math.PI * 2);
+        ctx.fill();
+      }
     }
+    ctx.restore();
   }
-  ctx.restore();
 }
 
 /** Furniture as a darker, rounded patch of the room it stands in. */
@@ -999,6 +1112,7 @@ function drawRobot(
   ctx: any,
   map: ClassicMap,
   project: (gx: number, gy: number) => [number, number],
+  turn: (gx: number, gy: number) => [number, number],
   scale: number,
   unit: number
 ): void {
@@ -1019,8 +1133,9 @@ function drawRobot(
   ctx.lineWidth = Math.max(1, r * 0.1);
   ctx.stroke();
   const angle = ((map.robot.angle ?? 90) * Math.PI) / 180;
-  const fx = Math.cos(angle);
-  const fy = -Math.sin(angle);
+  // Map angles turn counter-clockwise from +x with y up; the plan is drawn
+  // top-down and possibly turned.
+  const [fx, fy] = turn(Math.cos(angle), -Math.sin(angle));
   ctx.fillStyle = rgba(hex("#d7dbe0"));
   ctx.beginPath();
   ctx.arc(cx - fx * r * 0.18, cy - fy * r * 0.18, r * 0.36, 0, Math.PI * 2);
@@ -1243,6 +1358,11 @@ function drawRoomLabels(
   compact: boolean
 ): void {
   const names = new Map(rooms.map((room) => [room.id, room.name]));
+  const orders = new Map(
+    rooms
+      .filter((room) => Number.isInteger(room.order))
+      .map((room) => [room.id, room.order as number])
+  );
   const size = compact ? Math.max(12, unit * 4) : Math.max(12, unit * 2.9);
   const badge = size * 0.62;
   for (const room of geometry.rooms) {
@@ -1263,7 +1383,11 @@ function drawRoomLabels(
     ctx.font = `700 ${badge * 1.15}px "${FONT_FAMILY}"`;
     ctx.textAlign = "center";
     ctx.textBaseline = "middle";
-    ctx.fillText(String(room.number), left + badge, ay + badge * 0.06);
+    ctx.fillText(
+      String(orders.get(room.id) ?? room.number),
+      left + badge,
+      ay + badge * 0.06
+    );
 
     if (name) {
       ctx.fillStyle = rgba(ink);
