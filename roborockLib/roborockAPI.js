@@ -512,6 +512,8 @@ class Roborock {
 
     this.name = "roborock";
     this.deviceNotify = null;
+    // Set by the platform when the map camera is on; see publishMapBuffer.
+    this.mapBufferListener = null;
     this.serviceAreaRoomMapRefreshAttempts = new Map();
     this.matterUnsupportedSettingCommands = new Set();
     // Poll commands a robot has answered with "unsupported"/"unknown method":
@@ -6453,7 +6455,10 @@ class Roborock {
    *   avoid pointless map fetches and to re-broadcast on room changes.
    */
   async refreshLiveRoomForDevice(duid, context = {}) {
-    if (this.config.enableLiveRoomTracking === false) {
+    if (
+      this.config.enableLiveRoomTracking === false &&
+      !this.config.enableMapCamera
+    ) {
       return null;
     }
     if (
@@ -6500,7 +6505,8 @@ class Roborock {
    * @param {{v1State?: number}} [context]
    */
   async refreshClassicLiveRoom(duid, context = {}) {
-    if (this.config.enableLiveRoomTracking === false) {
+    const trackRoom = this.config.enableLiveRoomTracking !== false;
+    if (!trackRoom && !this.config.enableMapCamera) {
       return null;
     }
     // Only fetch while the robot is actively moving through rooms; a paused
@@ -6561,14 +6567,20 @@ class Roborock {
           return liveState.current;
         }
 
+        this.noteMethodAnswered(duid, "get_map_v1");
+        this.noteLiveRoomFetchRecovered(duid, liveState);
+        // The map camera draws the same buffer: one fetch serves both.
+        this.publishMapBuffer(duid, mapBuffer);
+        if (!trackRoom) {
+          return liveState.current;
+        }
+
         // Fast path: reads the single pixel under the robot directly from
         // the raw buffer — no pixel arrays are materialized (parsedata costs
         // ~23 ms + ~6.7 MB of allocations on a real-size map; this is
         // microseconds).
         const segmentId =
           RRMapParser.resolveLiveSegmentFromMapBuffer(mapBuffer);
-        this.noteMethodAnswered(duid, "get_map_v1");
-        this.noteLiveRoomFetchRecovered(duid, liveState);
 
         if (segmentId === null) {
           this.log.debug(
@@ -6606,6 +6618,83 @@ class Roborock {
     })();
 
     return liveState.inflight;
+  }
+
+  /**
+   * Hand a freshly fetched classic map to whoever draws it (the map camera).
+   * A listener that throws must not cost live-room tracking its room.
+   * @param {string} duid
+   * @param {Buffer} mapBuffer
+   */
+  publishMapBuffer(duid, mapBuffer) {
+    if (typeof this.mapBufferListener !== "function") {
+      return;
+    }
+    try {
+      this.mapBufferListener(duid, mapBuffer);
+    } catch (error) {
+      this.log.debug(
+        `Map listener for ${duid} failed: ${error?.message || error}`
+      );
+    }
+  }
+
+  /**
+   * One map, outside a cleaning run: the finished map when a run ends, or the
+   * first map after a restart when none was kept. Never polled — the camera
+   * asks at those two moments only, and the same give-up register as
+   * live-room tracking stops a robot that does not answer from being asked
+   * again. Classic (v1) robots only; B01/Q7 maps are a different format.
+   * @param {string} duid
+   * @returns {Promise<boolean>} whether a map was delivered
+   */
+  async fetchMapForCamera(duid) {
+    if (!this.config.enableMapCamera) {
+      return false;
+    }
+    if (
+      this.getVacuumDeviceInfo(duid, "pv") === b01Q7Adapter.B01_PROTOCOL_VERSION
+    ) {
+      return false;
+    }
+    if (!this._mapCameraFetches) {
+      this._mapCameraFetches = new Map();
+    }
+    const inflight = this._mapCameraFetches.get(duid);
+    if (inflight) {
+      return inflight;
+    }
+    if (this.unansweredMethods.shouldSkip(duid, "get_map_v1")) {
+      return false;
+    }
+    this.unansweredMethods.govern(duid, "get_map_v1");
+
+    const fetch = (async () => {
+      try {
+        const mapBuffer = await this.messageQueueHandler.sendRequest(
+          duid,
+          "get_map_v1",
+          [],
+          true
+        );
+        if (!Buffer.isBuffer(mapBuffer)) {
+          return false;
+        }
+        this.noteMethodAnswered(duid, "get_map_v1");
+        this.publishMapBuffer(duid, mapBuffer);
+        return true;
+      } catch (error) {
+        this.noteMethodUnanswered(duid, "get_map_v1", error);
+        this.log.debug(
+          `Map fetch for the camera of ${this.describeDevice(duid)} failed: ${error?.message || error}`
+        );
+        return false;
+      } finally {
+        this._mapCameraFetches.delete(duid);
+      }
+    })();
+    this._mapCameraFetches.set(duid, fetch);
+    return fetch;
   }
 
   getProductData(productId) {

@@ -219,6 +219,33 @@
           ]
         }
       },
+      "enableMapCamera": {
+        "title": "Add a Map Camera",
+        "description": "Shows the robot's map as a camera in the Home app: rooms, walls, no-go zones, the path of the current run and the robot's position. While the robot cleans, the picture follows the map live-room tracking already fetches (about every 10-15 seconds); when a run ends one more map is fetched so the finished map stays up; nothing is fetched while the robot is idle. The last map is kept only on the Homebridge machine. Classic (v1) robots only. Live view needs ffmpeg on the Homebridge machine: a Synology ffmpeg package is found by itself, otherwise ffmpeg on PATH or the ffmpegPath setting. Same child-bridge pairing as the switches and sensors.",
+        "type": "boolean",
+        "default": false
+      },
+      "mapCameraTheme": {
+        "title": "Map Camera Look",
+        "description": "The map is drawn the way the Roborock app draws it. Auto follows the clock: the app's light look by day, the same design dark by night.",
+        "type": "string",
+        "default": "auto",
+        "oneOf": [
+          { "title": "Auto (light by day, dark by night)", "enum": ["auto"] },
+          { "title": "Always light", "enum": ["day"] },
+          { "title": "Always dark", "enum": ["night"] }
+        ]
+      },
+      "mapFurnitureNames": {
+        "title": "Furniture Names (Map Camera)",
+        "description": "Optional names for the furniture codes the robot stores, e.g. {\"43\": \"双人床\"}. The plugin logs the codes it finds on your map; no public source maps them to names.",
+        "type": "object"
+      },
+      "ffmpegPath": {
+        "title": "ffmpeg Path (Map Camera)",
+        "description": "Optional. The ffmpeg binary the map camera's live view uses. Leave empty to use a Synology ffmpeg package if one is installed, else ffmpeg on PATH.",
+        "type": "string"
+      },
       "cloudOnlyMode": {
         "title": "Use Roborock Cloud Only",
         "description": "Disables local LAN discovery and local TCP commands for this plugin, routing commands and status polling through Roborock cloud when available. Useful when local LAN connections appear connected but consistently time out. Restart the Roborock child bridge after changing this setting.",

@@ -29,6 +29,15 @@ import RoborockHapScheduleAccessory, {
   isHapScheduleAccessory,
   ScheduleAccountCoordinator,
 } from "./hap_schedule_accessory";
+import RoborockMapCameraAccessory, {
+  MAP_CAMERA_KIND,
+  MapCameraContext,
+  MapSceneContext,
+  describeRobotState,
+  isMapCameraAccessory,
+  mapCameraUuidSeed,
+  resolveFfmpegPath,
+} from "./map_camera_accessory";
 
 import RoborockPlatformLogger from "./logger";
 import {
@@ -117,6 +126,9 @@ export default class RoborockPlatform implements DynamicPlatformPlugin {
   /** Optional read-only HAP state sensors, keyed `<duid>:<sensor>`. */
   private readonly stateSensors: Map<string, RoborockStateSensorAccessory> =
     new Map();
+  /** Optional map cameras, keyed by vacuum duid. */
+  private readonly mapCameras: Map<string, RoborockMapCameraAccessory> =
+    new Map();
   /** Optional HAP schedule accessories, keyed by vacuum duid. */
   private readonly hapScheduleAccessories: Map<
     string,
@@ -182,12 +194,15 @@ export default class RoborockPlatform implements DynamicPlatformPlugin {
         this.platformConfig.enableMatterServiceArea !== false,
       enableLiveRoomTracking:
         this.platformConfig.enableLiveRoomTracking !== false,
+      enableMapCamera: this.platformConfig.enableMapCamera === true,
       cloudOnlyMode: Boolean(this.platformConfig.cloudOnlyMode),
       log: this.log,
       userData: decryptedSession,
       storagePath: storagePath,
       errorLogThrottleMs: transientWarningThrottleHours * 60 * 60 * 1000,
     });
+    this.roborockAPI.mapBufferListener = (duid: string, mapBuffer: Buffer) =>
+      this.mapCameras.get(duid)?.updateMap(mapBuffer);
 
     /**
      * When this event is fired it means Homebridge has restored all cached accessories from disk.
@@ -585,6 +600,7 @@ export default class RoborockPlatform implements DynamicPlatformPlugin {
       this.syncHapSchedules(knownDevices);
       this.syncActionSwitches(knownDevices);
       this.syncStateSensors(knownDevices);
+      this.syncMapCameras(knownDevices);
       // After both syncs, so the count is the total a user has to find in
       // Apple Home rather than one kind's share of it.
       this.logHapPairingHint();
@@ -1189,6 +1205,7 @@ export default class RoborockPlatform implements DynamicPlatformPlugin {
     return (
       isActionSwitchAccessory(accessory) ||
       isStateSensorAccessory(accessory) ||
+      isMapCameraAccessory(accessory) ||
       isHapScheduleAccessory(accessory) ||
       isHapRoutineAccessory(accessory)
     );
@@ -1466,6 +1483,192 @@ export default class RoborockPlatform implements DynamicPlatformPlugin {
     }
   }
 
+  /**
+   * Bring the map cameras in line with the config and the account: one per
+   * classic robot while `enableMapCamera` is on, none otherwise. Same shape
+   * and the same empty-account caution as syncStateSensors.
+   */
+  private syncMapCameras(devices: any[]): void {
+    const enabled = this.platformConfig.enableMapCamera === true;
+    const mine = this.accessories.filter((accessory) =>
+      isMapCameraAccessory(accessory)
+    );
+    if (!enabled && mine.length === 0) {
+      return;
+    }
+
+    const wanted = new Map<string, string>();
+    if (enabled) {
+      for (const device of devices) {
+        const duid = String(device?.duid ?? "");
+        if (!duid) continue;
+        if (this.roborockAPI.getVacuumDeviceInfo?.(duid, "pv") === "B01") {
+          this.log.info(
+            `No map camera for '${this.getVacuumDisplayName(duid, device)}': B01/Q7 robots send their map in a format the camera does not draw yet.`
+          );
+          continue;
+        }
+        wanted.set(duid, this.getVacuumDisplayName(duid, device));
+      }
+    }
+
+    const accountIsTrustworthy = devices.length > 0;
+    const obsolete = mine.filter((accessory) => {
+      const duid = (accessory.context as Partial<MapCameraContext>).duid ?? "";
+      if (wanted.has(duid)) return false;
+      return !enabled || accountIsTrustworthy;
+    });
+    if (obsolete.length > 0) {
+      for (const accessory of obsolete) {
+        const duid =
+          (accessory.context as Partial<MapCameraContext>).duid ?? "";
+        this.log.info(
+          `Removing the '${accessory.displayName}' map camera; it is no longer enabled or its robot is gone.`
+        );
+        this.mapCameras.get(duid)?.dispose();
+        this.mapCameras.delete(duid);
+        const index = this.accessories.indexOf(accessory);
+        if (index >= 0) this.accessories.splice(index, 1);
+      }
+      this.api.unregisterPlatformAccessories(
+        HAP_PLUGIN_IDENTIFIER,
+        PLATFORM_NAME,
+        obsolete
+      );
+    }
+
+    for (const [duid, vacuumName] of wanted) {
+      const existing = this.mapCameras.get(duid);
+      if (existing) {
+        existing.updateIdentity(vacuumName);
+        continue;
+      }
+      this.addMapCamera(duid, vacuumName);
+    }
+
+    for (const duid of wanted.keys()) {
+      this.refreshMapCameraForRobot(duid);
+    }
+  }
+
+  private addMapCamera(duid: string, vacuumName: string): void {
+    const name = `${vacuumName} Map`;
+    const uuid = this.api.hap.uuid.generate(mapCameraUuidSeed(duid));
+    const context: MapCameraContext = { kind: MAP_CAMERA_KIND, duid };
+
+    let accessory = this.accessories.find((cached) => cached.UUID === uuid);
+    const isNew = !accessory;
+    if (!accessory) {
+      accessory = new this.api.platformAccessory(
+        name,
+        uuid,
+        this.api.hap.Categories.IP_CAMERA
+      );
+      this.accessories.push(accessory);
+    }
+    accessory.displayName = name;
+    accessory.context = { ...(accessory.context ?? {}), ...context };
+
+    const camera = new RoborockMapCameraAccessory(this, accessory, duid, {
+      storagePath: this.api.user.storagePath(),
+      ffmpegPath: resolveFfmpegPath(this.platformConfig.ffmpegPath),
+    });
+    this.mapCameras.set(duid, camera);
+
+    if (isNew) {
+      this.log.info(
+        `Adding the '${name}' camera — it shows the robot's map, refreshed while it cleans and kept after each run.`
+      );
+      this.api.registerPlatformAccessories(
+        HAP_PLUGIN_IDENTIFIER,
+        PLATFORM_NAME,
+        [accessory]
+      );
+    }
+  }
+
+  /**
+   * What the map camera shows besides the map: room names, the app-style
+   * status line, and the look the user picked.
+   */
+  getMapSceneContext(duid: string): MapSceneContext {
+    const rooms = (this.roborockAPI.getRoomMappingsForDevice?.(duid) ?? [])
+      .map((room: any) => ({
+        id: Number(room?.segmentId),
+        name: String(room?.name ?? ""),
+      }))
+      .filter((room: { id: number }) => Number.isFinite(room.id));
+    const read = (property: string) =>
+      Number(this.roborockAPI.getVacuumDeviceStatus?.(duid, property));
+    const state = read("state");
+    const battery = read("battery");
+    const cleaning =
+      this.matterVacuums.get(duid)?.getHomeKitStateSensorValue("cleaning") ===
+      true;
+    const live = cleaning
+      ? this.roborockAPI.getLiveRoomForDevice?.(duid)
+      : null;
+
+    const theme = this.platformConfig.mapCameraTheme;
+    const furnitureNames: Record<number, string> = {};
+    const configured = this.platformConfig.mapFurnitureNames;
+    if (configured && typeof configured === "object") {
+      for (const [code, name] of Object.entries(configured)) {
+        if (/^\d+$/.test(code) && typeof name === "string" && name.trim()) {
+          furnitureNames[Number(code)] = name.trim();
+        }
+      }
+    }
+
+    return {
+      rooms,
+      status: {
+        title: this.getVacuumDisplayName(duid),
+        state: describeRobotState(state),
+        detail: typeof live?.roomName === "string" ? live.roomName : null,
+        battery: Number.isFinite(battery) && battery > 0 ? battery : null,
+        charging: state === 8,
+        active: cleaning,
+      },
+      theme: theme === "day" || theme === "night" ? theme : "auto",
+      furnitureNames,
+    };
+  }
+
+  /**
+   * Called after every publish. While the robot cleans, ask for the live map
+   * (live-room tracking's fetch, throttled and single-flighted there, so a
+   * second caller costs nothing); when a run ends — or at startup with no
+   * map kept — fetch one map so the camera shows the finished picture.
+   */
+  refreshMapCameraForRobot(duid: string): void {
+    const camera = this.mapCameras.get(duid);
+    const vacuum = this.matterVacuums.get(duid);
+    if (!camera || !vacuum) {
+      return;
+    }
+
+    const cleaning = vacuum.getHomeKitStateSensorValue("cleaning");
+    if (cleaning === true) {
+      void this.roborockAPI
+        .refreshLiveRoomForDevice?.(duid, {})
+        ?.catch?.(() => undefined);
+    }
+    if (camera.noteCleaning(cleaning)) {
+      // The robot uploads its final map on the way back to the dock; give it
+      // a moment rather than drawing the map from before the last room.
+      const timer = setTimeout(
+        () => {
+          void this.roborockAPI
+            .fetchMapForCamera?.(duid)
+            ?.catch?.(() => undefined);
+        },
+        cleaning === false ? 20_000 : 5_000
+      );
+      timer.unref?.();
+    }
+  }
+
   private removeStateSensors(accessories: PlatformAccessory[]): void {
     for (const accessory of accessories) {
       const context = accessory.context as Partial<StateSensorContext>;
@@ -1615,6 +1818,11 @@ export default class RoborockPlatform implements DynamicPlatformPlugin {
     if (this.stateSensors.size > 0) {
       parts.push(
         `${this.stateSensors.size} sensor${this.stateSensors.size === 1 ? "" : "s"}`
+      );
+    }
+    if (this.mapCameras.size > 0) {
+      parts.push(
+        `${this.mapCameras.size} map camera${this.mapCameras.size === 1 ? "" : "s"}`
       );
     }
 
@@ -1967,7 +2175,10 @@ export default class RoborockPlatform implements DynamicPlatformPlugin {
     // Attached once, for the vacuum's whole life: this is the only place a
     // vacuum is constructed and they are never replaced. Costs nothing when no
     // state sensors are configured, because the refresh returns immediately.
-    vacuum.setStateListener(() => this.refreshStateSensorsForRobot(duid));
+    vacuum.setStateListener(() => {
+      this.refreshStateSensorsForRobot(duid);
+      this.refreshMapCameraForRobot(duid);
+    });
     return vacuum;
   }
 

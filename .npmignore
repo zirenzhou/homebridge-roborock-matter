@@ -28,7 +28,9 @@ jest.config.js
 
 # Docs
 images/
-assets/
+assets/*
+# …except the map camera's fonts, which the renderer loads at runtime.
+!assets/fonts/
 ROADMAP.md
 
 # Runtime data
@@ -39,6 +41,8 @@ roborockLib/data/
 # tree referenced. They were excluded here rather than removed, which is how
 # they survived unnoticed: ignored by the package, invisible in review.
 __tests__/
+test-support/
+.scratch/
 
 # Editor/repo metadata
 .gitattributes

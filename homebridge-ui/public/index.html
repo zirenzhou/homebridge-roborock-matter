@@ -338,6 +338,24 @@
       </label>
     </div>
 
+    <label class="checkbox">
+      <input id="enable-map-camera" type="checkbox" />
+      <span>
+        Add a map camera
+        <small
+          >Shows the robot&rsquo;s map as a camera in the Home app: rooms,
+          walls, no-go zones, the path of the current run and where the robot
+          is. While it cleans the picture follows the live map (about every
+          10&ndash;15 seconds, the same fetch live-room tracking already makes);
+          when a run ends the finished map stays up, and nothing is fetched
+          while the robot is idle. The last map is kept on the Homebridge
+          machine only. Live view needs ffmpeg on the Homebridge machine; a
+          Synology ffmpeg package is found by itself. Same pairing as the
+          switches and sensors. Off by default.</small
+        >
+      </span>
+    </label>
+
     <div id="homekit-switch-pairing" class="pairing-callout hidden">
       <h3>
         &#9888; The switches and sensors need their own pairing &mdash; a

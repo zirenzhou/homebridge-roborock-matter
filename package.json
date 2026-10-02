@@ -57,6 +57,7 @@
     "axios": "^1.13.4",
     "binary-parser": "^2.3.0",
     "crc-32": "^1.2.2",
+    "jpeg-js": "^0.4.4",
     "mqtt": "^5.15.0",
     "qrcode": "^1.5.4"
   },
@@ -86,5 +87,8 @@
       "url": "https://github.com/applemanj"
     }
   ],
-  "forkedFrom": "homebridge-roborock-vacuum2 by Joshua Appleman (https://github.com/applemanj/homebridge-roborock-vacuum2)"
+  "forkedFrom": "homebridge-roborock-vacuum2 by Joshua Appleman (https://github.com/applemanj/homebridge-roborock-vacuum2)",
+  "optionalDependencies": {
+    "@napi-rs/canvas": "^1.0.10"
+  }
 }

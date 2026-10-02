@@ -21,6 +21,7 @@ const elements = {
   homeKitActionEmpty: document.getElementById("homekit-action-empty"),
   homeKitActionPause: document.getElementById("homekit-action-pause"),
   homeKitActionLocate: document.getElementById("homekit-action-locate"),
+  enableMapCamera: document.getElementById("enable-map-camera"),
   enableHomeKitStateSensors: document.getElementById(
     "enable-homekit-state-sensors"
   ),
@@ -191,6 +192,9 @@ async function loadConfig() {
       elements.enableHomeKitStateSensors.checked = Boolean(
         config.enableHomeKitStateSensors
       );
+    }
+    if (elements.enableMapCamera) {
+      elements.enableMapCamera.checked = config.enableMapCamera === true;
     }
     applyActionSwitchSelection(readActionSwitchSelection(config));
     applyStateSensorSelection(readStateSensorSelection(config));
@@ -365,6 +369,7 @@ async function describeEnabledMatterFeatures() {
       `homeKitStateSensors(${readStateSensorSelection(config).join("+") || "none"})`,
       config.enableHomeKitStateSensors === true,
     ],
+    ["mapCamera", config.enableMapCamera === true],
   ]
     .filter(([, on]) => on)
     .map(([name]) => name);
@@ -388,6 +393,7 @@ function hasUnsavedMatterFeatureEdits(config) {
       elements.enableHomeKitStateSensors,
       config.enableHomeKitStateSensors === true,
     ],
+    [elements.enableMapCamera, config.enableMapCamera === true],
     [
       elements.homeKitActionSchedules,
       config.enableHomeKitScheduleSwitches === true,
@@ -545,8 +551,12 @@ function syncActionSwitchAvailability() {
   // important thing on the page the moment one is. Either feature puts the
   // user in the same situation — HAP accessories on a bridge they may never
   // have paired — so the callout follows both, not just the switches.
+  const cameraOn = Boolean(elements.enableMapCamera?.checked);
   if (elements.homeKitSwitchPairing) {
-    elements.homeKitSwitchPairing.classList.toggle("hidden", !on && !sensorsOn);
+    elements.homeKitSwitchPairing.classList.toggle(
+      "hidden",
+      !on && !sensorsOn && !cameraOn
+    );
   }
   ACTION_SWITCH_KEYS.forEach((key) => {
     const element = ACTION_SWITCH_ELEMENTS[key]();
@@ -674,6 +684,7 @@ function getFormValues() {
       elements.enableHomeKitStateSensors?.checked
     ),
     homeKitStateSensors: getSavedStateSensorSelection(),
+    enableMapCamera: Boolean(elements.enableMapCamera?.checked),
     enableHomeKitScheduleSwitches: Boolean(
       elements.homeKitActionSchedules?.checked
     ),
@@ -1859,6 +1870,11 @@ function init() {
       }
       syncActionSwitchAvailability();
     });
+  }
+  if (elements.enableMapCamera) {
+    elements.enableMapCamera.addEventListener("change", () =>
+      syncActionSwitchAvailability()
+    );
   }
   if (elements.enableHomeKitStateSensors) {
     elements.enableHomeKitStateSensors.addEventListener("change", () => {

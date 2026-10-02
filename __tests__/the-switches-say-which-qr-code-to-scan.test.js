@@ -209,10 +209,13 @@ describe("the settings page keeps the pairing steps next to the switch", () => {
     // Shown when the feature is on, hidden when it is off: pairing steps for a
     // feature you have not enabled are noise, and noise is what gets skipped.
     expect(js).toMatch(/homeKitSwitchPairing/);
-    // Shown when EITHER feature is on: both put HAP accessories on a bridge the
-    // user may never have paired, so hiding the steps for one of them would
-    // reproduce the failure this callout exists for.
-    expect(js).toMatch(/classList\.toggle\("hidden", !on && !sensorsOn\)/);
+    // Shown when ANY of the features is on: switches, sensors and the map
+    // camera all put HAP accessories on a bridge the user may never have
+    // paired, so hiding the steps for one of them would reproduce the failure
+    // this callout exists for.
+    expect(js).toMatch(
+      /classList\.toggle\(\s*"hidden",\s*!on && !sensorsOn && !cameraOn\s*\)/
+    );
   });
 
   test("it explains why the Matter code is not enough", () => {

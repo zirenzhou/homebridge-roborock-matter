@@ -171,7 +171,12 @@ function makeCoordinator(scenes) {
     Characteristic,
     roborockAPI: cloud,
     api: { updatePlatformAccessories: homebridge.updatePlatformAccessories },
-    log: { debug: jest.fn(), info: jest.fn(), warn: jest.fn(), error: jest.fn() },
+    log: {
+      debug: jest.fn(),
+      info: jest.fn(),
+      warn: jest.fn(),
+      error: jest.fn(),
+    },
   };
   const coordinator = new RoborockHapScheduleAccessory(
     platform,
