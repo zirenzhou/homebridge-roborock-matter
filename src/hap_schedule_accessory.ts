@@ -1557,11 +1557,20 @@ export default class RoborockHapScheduleAccessory {
       changed = true;
     }
 
-    if (changed) {
+    // The count goes to the platform FIRST: that is what registers a freshly
+    // created accessory (count > 0) or unregisters one that has run out of
+    // switches (count 0). Homebridge 2 appends whatever it is asked to update
+    // to its cache list, so updating before registering put an accessory
+    // without a plugin name on that list — "Cannot serialize accessory
+    // 'Rocky Routines' - missing associated plugin", every cache save failing
+    // for the rest of the run, and the register that followed skipped as a
+    // duplicate UUID, so the tile was not bridged until the next restart.
+    const count = this.routineSwitches.size;
+    this.onRoutineCount?.(count);
+
+    if (changed && count > 0) {
       this.platform.api.updatePlatformAccessories([accessory]);
     }
-
-    this.onRoutineCount?.(this.routineSwitches.size);
   }
 
   /**
@@ -1774,12 +1783,20 @@ export default class RoborockHapScheduleAccessory {
       return;
     }
 
+    // Only an accessory that has carried a switch was ever registered: sync
+    // registers before it adds the first one, and a cached accessory came
+    // registered. Updating one that never was would put it on Homebridge 2's
+    // cache list without a plugin name (see syncRoutines).
+    let removed = false;
     for (const service of [...accessory.services]) {
       if (service.UUID === this.platform.Service.Switch.UUID) {
         accessory.removeService(service);
+        removed = true;
       }
     }
-    this.platform.api.updatePlatformAccessories([accessory]);
+    if (removed) {
+      this.platform.api.updatePlatformAccessories([accessory]);
+    }
     this.routineAccessory = undefined;
   }
 
