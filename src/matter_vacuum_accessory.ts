@@ -936,6 +936,8 @@ export default class RoborockMatterVacuumAccessory {
   // read-only "Cleaning" state sensor answers from this so it and the Apple
   // Home tile always say the same thing. Null until the first publish.
   private lastPublishedRunMode: number | null = null;
+  /** Whether the last publish was on a cleaning run, for dust pending. */
+  private wasOnRunForDust: boolean | null = null;
   // Notified after every publish, by whoever wants to mirror this robot's state
   // somewhere else. Null means nobody asked, which is the common case.
   private stateListener: (() => void) | null = null;
@@ -1127,6 +1129,11 @@ export default class RoborockMatterVacuumAccessory {
         );
       case "waterTankEmpty":
         return this.isWaterTankEmpty();
+      case "dustPending":
+        return (
+          (this.accessory.context as { dustPending?: boolean }).dustPending ===
+          true
+        );
       default:
         return null;
     }
@@ -2208,6 +2215,8 @@ export default class RoborockMatterVacuumAccessory {
       return;
     }
 
+    (this.accessory.context as { dustPending?: boolean }).dustPending = false;
+    this.notifyStateListener();
     this.dispatchRoborockMatterCommand(
       "empty dust bin",
       () =>
@@ -2728,6 +2737,7 @@ export default class RoborockMatterVacuumAccessory {
    * to own that knowledge, so it does not.
    */
   private notifyStateListener(): void {
+    this.trackDustPending();
     if (!this.stateListener) {
       return;
     }
@@ -2740,6 +2750,27 @@ export default class RoborockMatterVacuumAccessory {
         `State listener for ${this.getVacuumName()} failed: ${this.getErrorMessage(error)}`
       );
     }
+  }
+
+  /**
+   * Dust pending: set when a cleaning run ends, cleared when the dock is seen
+   * emptying the bin (state 22) or is asked to. Lets an automation empty the
+   * bin later — when a door is closed, say — without emptying it twice. Kept
+   * in the accessory's context, so a restart does not forget a pending bin.
+   */
+  private trackDustPending(): void {
+    if (!this.hasUsableRobotState()) {
+      return;
+    }
+    const context = this.accessory.context as { dustPending?: boolean };
+    const onRun =
+      (this.lastPublishedRunMode ?? this.lastRunMode) === RUN_MODE_CLEANING;
+    if (this.getNumberStatus("state") === 22) {
+      context.dustPending = false;
+    } else if (this.wasOnRunForDust === true && !onRun) {
+      context.dustPending = true;
+    }
+    this.wasOnRunForDust = onRun;
   }
 
   /** Keep the run mode the state sensors answer from in step with Matter's. */

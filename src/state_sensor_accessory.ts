@@ -52,6 +52,13 @@ export const STATE_SENSOR_DEFINITIONS: readonly StateSensorDefinition[] = [
       "reads Closed while the robot reports its clean-water tank empty and Open otherwise",
     restingState: false,
   },
+  {
+    key: "dustPending",
+    nameSuffix: "Dust Pending",
+    summary:
+      "reads Closed from the end of a cleaning run until the dock has emptied the bin",
+    restingState: false,
+  },
 ];
 
 export function getStateSensorDefinition(

@@ -43,6 +43,9 @@ const elements = {
   homeKitStateWaterTankEmpty: document.getElementById(
     "homekit-state-water-tank-empty"
   ),
+  homeKitStateDustPending: document.getElementById(
+    "homekit-state-dust-pending"
+  ),
   homeKitActionSchedules: document.getElementById("homekit-action-schedules"),
   homeKitActionRoutines: document.getElementById("homekit-action-routines"),
   matterChargedBatteryThreshold: document.getElementById(
@@ -114,11 +117,17 @@ const ACTION_SWITCH_ELEMENTS = {
 
 // Kept in the same order as HOMEKIT_STATE_SENSOR_KEYS in src/types.ts, for the
 // same reason as above.
-const STATE_SENSOR_KEYS = ["docked", "cleaning", "waterTankEmpty"];
+const STATE_SENSOR_KEYS = [
+  "docked",
+  "cleaning",
+  "waterTankEmpty",
+  "dustPending",
+];
 const STATE_SENSOR_ELEMENTS = {
   docked: () => elements.homeKitStateDocked,
   cleaning: () => elements.homeKitStateCleaning,
   waterTankEmpty: () => elements.homeKitStateWaterTankEmpty,
+  dustPending: () => elements.homeKitStateDustPending,
 };
 
 function showToast(type, message) {
@@ -489,9 +498,15 @@ function readActionSwitchSelection(config) {
  */
 function getSavedActionSwitchSelection() {
   const selection = getActionSwitchSelection();
+  // Nothing ticked under an enabled feature saves "dock", the one switch
+  // Apple Home cannot replace — unless Routines or Schedules are what the
+  // feature was turned on for, in which case an unasked-for switch would
+  // appear beside them.
   if (
     selection.length === 0 &&
-    Boolean(elements.enableHomeKitActionSwitches?.checked)
+    Boolean(elements.enableHomeKitActionSwitches?.checked) &&
+    !elements.homeKitActionRoutines?.checked &&
+    !elements.homeKitActionSchedules?.checked
   ) {
     return ["dock"];
   }

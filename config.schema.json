@@ -210,7 +210,7 @@
         "default": ["docked"],
         "items": {
           "type": "string",
-          "enum": ["docked", "cleaning", "waterTankEmpty"],
+          "enum": ["docked", "cleaning", "waterTankEmpty", "dustPending"],
           "oneOf": [
             {
               "title": "Docked (Closed while the robot is in its dock)",
@@ -223,6 +223,10 @@
             {
               "title": "Water Tank Empty (Closed while the robot reports no clean water)",
               "enum": ["waterTankEmpty"]
+            },
+            {
+              "title": "Dust Pending (Closed after a run until the bin is emptied)",
+              "enum": ["dustPending"]
             }
           ]
         }

@@ -109,3 +109,43 @@ test("a button the dock cannot do says so and sends nothing", async () => {
     expect.stringContaining("does not support it")
   );
 });
+
+describe("dust pending", () => {
+  /**
+   * The owner's plan: no auto-empty while the balcony door is open, so the
+   * dock's own auto-empty is off and an automation empties the bin once the
+   * door is shut. The sensor says whether there is anything to empty.
+   */
+  function withStatus() {
+    const status = { state: 8, charge_status: 1, dock_type: 33 };
+    const h = harness([]);
+    h.api.getVacuumDeviceStatus = (_duid, property) => status[property] ?? "";
+    return { ...h, status };
+  }
+
+  test("is set when a run ends and cleared when the dock empties the bin", () => {
+    const { vacuum, status } = withStatus();
+    const pending = () => vacuum.getHomeKitStateSensorValue("dustPending");
+
+    vacuum.lastPublishedRunMode = 1; // on a run
+    status.state = 5;
+    vacuum.notifyStateListener();
+    expect(pending()).toBe(false);
+
+    vacuum.lastPublishedRunMode = 0; // back on the dock
+    status.state = 8;
+    vacuum.notifyStateListener();
+    expect(pending()).toBe(true);
+
+    status.state = 22; // the dock empties the bin
+    vacuum.notifyStateListener();
+    expect(pending()).toBe(false);
+  });
+
+  test("pressing Empty Bin clears it straight away", async () => {
+    const { vacuum } = withStatus();
+    vacuum.accessory.context.dustPending = true;
+    await vacuum.runHomeKitAction("empty");
+    expect(vacuum.getHomeKitStateSensorValue("dustPending")).toBe(false);
+  });
+});
