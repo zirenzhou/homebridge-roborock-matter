@@ -1,4 +1,9 @@
 import {
+  buildModeProbeAccessory,
+  isModeProbeAccessory,
+  MODE_PROBE_UUID_SEED,
+} from "./mode_probe_accessory";
+import {
   API,
   APIEvent,
   Characteristic,
@@ -517,6 +522,12 @@ export default class RoborockPlatform implements DynamicPlatformPlugin {
    * and runtime-typed so Homebridge 1.x users remain fully supported.
    */
   configureMatterAccessory(accessory: any) {
+    // The mode probe is managed on its own (syncModeProbe), so the stale-robot
+    // cleanup never mistakes it for a robot that left the account.
+    if (isModeProbeAccessory(accessory)) {
+      this.modeProbeCached = accessory;
+      return;
+    }
     // Once per cached accessory, and Homebridge already summarises the cache
     // restore. Three robots with three switches each would be nine info lines
     // saying nothing happened.
@@ -607,6 +618,7 @@ export default class RoborockPlatform implements DynamicPlatformPlugin {
       this.probeDockSettingsOnce(knownDevices);
 
       await this.unregisterStaleMatterAccessories();
+      await this.syncModeProbe();
     } catch (error) {
       this.log.error(
         "An error occurred during device discovery. " +
@@ -2230,6 +2242,61 @@ export default class RoborockPlatform implements DynamicPlatformPlugin {
       this.refreshMapCameraForRobot(duid);
     });
     return vacuum;
+  }
+
+  private modeProbeCached: any = null;
+
+  /**
+   * Publish or withdraw the mode probe (mode_probe_accessory.ts), following
+   * matterModeProbe in config.json.
+   */
+  private async syncModeProbe(): Promise<void> {
+    const matter = this.getMatterApi();
+    if (!matter?.deviceTypes?.RoboticVacuumCleaner) {
+      return;
+    }
+    const wanted = this.platformConfig.matterModeProbe === true;
+    const cached = this.modeProbeCached;
+    try {
+      if (!wanted) {
+        if (cached) {
+          await matter.unregisterPlatformAccessories(
+            PLUGIN_NAME,
+            PLATFORM_NAME,
+            [cached]
+          );
+          this.modeProbeCached = null;
+          this.log.info("[Mode probe] Withdrawn.");
+        }
+        return;
+      }
+      const uuidGenerator = matter.uuid || this.api.hap.uuid;
+      const uuid = cached?.UUID ?? uuidGenerator.generate(MODE_PROBE_UUID_SEED);
+      const probe = buildModeProbeAccessory({
+        uuid,
+        deviceType: matter.deviceTypes.RoboticVacuumCleaner,
+        log: this.log,
+        update: (cluster, attributes) => {
+          void matter
+            .updateAccessoryState?.(uuid, cluster, attributes)
+            ?.catch?.(() => undefined);
+        },
+      });
+      if (cached) {
+        Object.assign(cached, probe);
+        await matter.updatePlatformAccessories([cached]);
+      } else {
+        await matter.registerPlatformAccessories(PLUGIN_NAME, PLATFORM_NAME, [
+          probe,
+        ]);
+        this.modeProbeCached = probe;
+      }
+      this.log.info(
+        `[Mode probe] Published with ${probe.clusters.rvcCleanMode.supportedModes.length} clean modes. It never talks to a robot; pair it from the Matter Pairing list.`
+      );
+    } catch (error) {
+      this.log.warn(`[Mode probe] Could not publish: ${String(error)}`);
+    }
   }
 
   private async unregisterStaleMatterAccessories(): Promise<void> {

@@ -625,7 +625,11 @@ class RoborockUiServer {
       kind,
       name:
         matchedDevice?.name ||
-        (kind === "bridge" ? "Matter Roborock Bridge" : "Matter accessory"),
+        (serialNumber === "MODE-PROBE-1"
+          ? "Mode Probe (test device, never talks to a robot)"
+          : kind === "bridge"
+            ? "Matter Roborock Bridge"
+            : "Matter accessory"),
       serialNumber: serialNumber || null,
       matchedDuid: matchedDevice?.duid || null,
       matchedSerial: matchedDevice?.sn || null,
