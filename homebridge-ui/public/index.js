@@ -27,6 +27,7 @@ const elements = {
   enableExtendedCleanModes: document.getElementById(
     "enable-extended-clean-modes"
   ),
+  vacuumAndMopOrder: document.getElementById("vacuum-and-mop-order"),
   matterButtons: {
     dock: document.getElementById("matter-button-dock"),
     empty: document.getElementById("matter-button-empty"),
@@ -244,6 +245,10 @@ async function loadConfig() {
           ? Number(config.mapCameraRotation)
           : 0
       );
+    }
+    if (elements.vacuumAndMopOrder) {
+      elements.vacuumAndMopOrder.value =
+        config.vacuumAndMopOrder === "vacuumFirst" ? "vacuumFirst" : "together";
     }
     if (elements.mapCameraTheme) {
       elements.mapCameraTheme.value = ["day", "night"].includes(
@@ -751,6 +756,10 @@ function getFormValues() {
     enableExtendedCleanModes: Boolean(
       elements.enableExtendedCleanModes?.checked
     ),
+    vacuumAndMopOrder:
+      elements.vacuumAndMopOrder?.value === "vacuumFirst"
+        ? "vacuumFirst"
+        : "together",
     matterDockButtons: Object.entries(elements.matterButtons)
       .filter(([, element]) => element?.checked)
       .map(([key]) => key),

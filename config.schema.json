@@ -104,6 +104,16 @@
         "type": "boolean",
         "default": false
       },
+      "vacuumAndMopOrder": {
+        "title": "Vacuum & Mop Runs",
+        "description": "together: Vacuum & Mop vacuums and mops at once (the default). vacuumFirst: every Vacuum & Mop choice in Apple Home, suction levels included, vacuums the whole run first and then mops it (先扫后拖), and no separate Vacuum then Mop mode is offered. Only for robots that support vacuum-then-mop. Matter fixes the mode list at pairing, so changing this needs one remove-and-re-pair.",
+        "type": "string",
+        "default": "together",
+        "oneOf": [
+          { "title": "Vacuum and mop at once", "enum": ["together"] },
+          { "title": "Vacuum first, then mop", "enum": ["vacuumFirst"] }
+        ]
+      },
       "enableMatterExtendedOperationalStates": {
         "title": "Enable Matter Dock & Returning Status",
         "description": "The extended Matter statuses: Returning to the dock, Emptying the dust bin, Washing the mop, and Updating maps. On by default. Matter fixes an accessory's capabilities at commissioning, so a robot paired before 3.12.0 needs one remove-and-re-pair in Apple Home before these appear. Which of these Apple Home actually renders is Apple's decision. Unless Charging/Docked status is also enabled below, docked and charging still report as Ready. Note: Roborock's mop DRYING has no operational state of its own in the Matter robot vacuum specification, so it is not reported here.",

@@ -3226,7 +3226,7 @@ export default class RoborockMatterVacuumAccessory {
           // before its mode picker worked again; and Apple renders the tag rather
           // than the label, so the change is visible and would have to be worth it.
           // Combining the 2 standard tags is legal and is what ships today.
-          label: "Vacuum + Mop",
+          label: this.getVacuumAndMopLabel("Vacuum + Mop"),
           mode: CLEAN_MODE_VACUUM_AND_MOP,
           modeTags: [
             { value: RVC_CLEAN_MODE_TAG_VACUUM },
@@ -3261,7 +3261,7 @@ export default class RoborockMatterVacuumAccessory {
 
     for (const extended of this.getAnnouncedExtendedCleanModes(capabilities)) {
       supportedModes.push({
-        label: extended.label,
+        label: this.getVacuumAndMopLabel(extended.label),
         mode: extended.mode,
         modeTags: extended.tags.map((value) => ({ value })),
       });
@@ -3292,8 +3292,61 @@ export default class RoborockMatterVacuumAccessory {
     }
     return EXTENDED_CLEAN_MODES.filter(
       (extended) =>
-        !extended.vacuumThenMop || capabilities.canVacuumThenMop === true
+        !extended.vacuumThenMop ||
+        (capabilities.canVacuumThenMop === true &&
+          !this.isVacuumAndMopVacuumFirst(capabilities))
     );
+  }
+
+  /**
+   * vacuumAndMopOrder "vacuumFirst": Vacuum + Mop itself runs vacuum-then-mop
+   * (先扫后拖), and the separate Vacuum then Mop modes are not announced.
+   *
+   * Apple Home lists VacuumThenMop as one more entry in the Vacuum + Mop
+   * menu, next to the suction levels and exclusive with them (measured on
+   * iOS 27, 2 Oct 2026), so a vacuum-then-mop run could not have its suction
+   * chosen. An owner who never wants both at once gets the whole Vacuum +
+   * Mop menu, levels included, as vacuum-then-mop. Only for robots that can.
+   */
+  private isVacuumAndMopVacuumFirst(
+    capabilities: MatterCleanModeCapabilities = this.getMatterCleanModeCapabilities()
+  ): boolean {
+    return (
+      this.platform.platformConfig.vacuumAndMopOrder === "vacuumFirst" &&
+      capabilities.canVacuumThenMop === true
+    );
+  }
+
+  /**
+   * The clean sequence a Vacuum + Mop family mode asks for: 1 vacuum first,
+   * 0 both at once, undefined when the plugin must not touch it — a robot
+   * left on 先扫后拖 in the Roborock app is not switched back by a start that
+   * never offered the choice.
+   */
+  private getSequenceTypeForCleanMode(
+    cleanMode: number,
+    capabilities: MatterCleanModeCapabilities = this.getMatterCleanModeCapabilities()
+  ): 0 | 1 | undefined {
+    if (this.getBaseCleanType(cleanMode) !== CLEAN_MODE_VACUUM_AND_MOP) {
+      return undefined;
+    }
+    if (this.isVacuumAndMopVacuumFirst(capabilities)) {
+      return 1;
+    }
+    const offersVacuumThenMop = this.getAnnouncedExtendedCleanModes(
+      capabilities
+    ).some((announced) => announced.vacuumThenMop);
+    if (!offersVacuumThenMop) {
+      return undefined;
+    }
+    return this.getExtendedCleanMode(cleanMode)?.vacuumThenMop ? 1 : 0;
+  }
+
+  /** "Vacuum + Mop", or what it means when it runs vacuum-first. */
+  private getVacuumAndMopLabel(base: string): string {
+    return this.isVacuumAndMopVacuumFirst()
+      ? base.replace("Vacuum + Mop", "Vacuum then Mop")
+      : base;
   }
 
   private getExtendedCleanMode(
@@ -3316,7 +3369,11 @@ export default class RoborockMatterVacuumAccessory {
     if (announced.length === 0) {
       return null;
     }
-    const vacuumThenMop = this.getNumberStatus("seq_type") === 1;
+    // Without separate vacuum-then-mop modes the sequence picks no family:
+    // the Vacuum + Mop levels stand for whichever order the owner chose.
+    const vacuumThenMop =
+      announced.some((extended) => extended.vacuumThenMop) &&
+      this.getNumberStatus("seq_type") === 1;
     const fanPower = this.getNumberStatus("fan_power");
     const family = announced.filter(
       (extended) => extended.vacuumThenMop === vacuumThenMop
@@ -3367,7 +3424,12 @@ export default class RoborockMatterVacuumAccessory {
     const extended = this.getExtendedCleanMode(cleanMode);
     if (extended) {
       const sequence = this.getNumberStatus("seq_type");
-      if (sequence !== null && (sequence === 1) !== extended.vacuumThenMop) {
+      const expected = this.getSequenceTypeForCleanMode(cleanMode);
+      if (
+        sequence !== null &&
+        expected !== undefined &&
+        sequence !== expected
+      ) {
         return false;
       }
       if (extended.fanPower !== null) {
@@ -3846,16 +3908,12 @@ export default class RoborockMatterVacuumAccessory {
             : this.getPreferredVacuumFanPower();
     }
 
-    // Only once vacuum-then-mop is on offer, and only for runs that mop and
-    // vacuum: otherwise a robot left on 先扫后拖 in the Roborock app would be
-    // switched back by a Matter start that never mentioned it.
-    if (
-      baseCleanMode === CLEAN_MODE_VACUUM_AND_MOP &&
-      this.getAnnouncedExtendedCleanModes(capabilities).some(
-        (announced) => announced.vacuumThenMop
-      )
-    ) {
-      settings.sequenceType = extended?.vacuumThenMop ? 1 : 0;
+    const sequenceType = this.getSequenceTypeForCleanMode(
+      cleanMode,
+      capabilities
+    );
+    if (sequenceType !== undefined) {
+      settings.sequenceType = sequenceType;
     }
 
     if (capabilities.canControlWater) {
@@ -3920,13 +3978,13 @@ export default class RoborockMatterVacuumAccessory {
     }
     const extended = this.getExtendedCleanMode(cleanMode);
     if (extended) {
-      return extended.label;
+      return this.getVacuumAndMopLabel(extended.label);
     }
     switch (cleanMode) {
       case CLEAN_MODE_MOP:
         return "Mop";
       case CLEAN_MODE_VACUUM_AND_MOP:
-        return "Vacuum + Mop";
+        return this.getVacuumAndMopLabel("Vacuum + Mop");
       default:
         return "Vacuum";
     }

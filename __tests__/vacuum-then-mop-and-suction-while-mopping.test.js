@@ -28,6 +28,7 @@ const CLEANING_STATE = 5;
 function createAccessory({
   enableExtendedCleanModes = true,
   canVacuumThenMop = true,
+  vacuumAndMopOrder,
   status = {},
 } = {}) {
   const platform = {
@@ -35,6 +36,7 @@ function createAccessory({
       enableMatter: true,
       enableFanPowerCleanModes: true,
       enableExtendedCleanModes,
+      vacuumAndMopOrder,
     },
     log: {
       debug: jest.fn(),
@@ -360,5 +362,77 @@ describe("the settings probe", () => {
     expect(JSON.stringify(answers)).not.toContain("Somewhere/City");
     expect(answers.app_get_init_status.feature_info).toEqual([111]);
     expect(answers.get_clean_summary).toEqual({ clean_count: 3, records: 3 });
+  });
+});
+
+describe("Vacuum + Mop that always vacuums first", () => {
+  // Apple Home puts Vacuum then Mop in the Vacuum + Mop menu as one more entry,
+  // exclusive with the suction levels. An owner who never mops and vacuums at
+  // once gets the whole menu, levels included, as vacuum-then-mop.
+  const vacuumFirst = (options = {}) =>
+    createAccessory({ vacuumAndMopOrder: "vacuumFirst", ...options });
+
+  test("announces no separate vacuum-then-mop modes, and names the rest for what they do", () => {
+    const { instance } = vacuumFirst();
+    const modes = instance.buildCleanModeCluster().supportedModes;
+    expect(modes.map((mode) => mode.mode)).toEqual([
+      0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11,
+    ]);
+    const byMode = new Map(modes.map((mode) => [mode.mode, mode]));
+    expect(byMode.get(2).label).toBe("Vacuum then Mop");
+    expect(byMode.get(11).label).toBe("Max Vacuum then Mop");
+    expect(byMode.get(11).modeTags.map((tag) => tag.value)).toEqual([
+      VACUUM,
+      MOP,
+      7,
+    ]);
+    const labels = modes.map((mode) => mode.label);
+    expect(new Set(labels).size).toBe(labels.length);
+  });
+
+  test("every Vacuum + Mop level asks for the sequence; vacuum and mop alone do not", () => {
+    const { instance } = vacuumFirst({ status: { water_box_mode: 235 } });
+    expect(instance.getRoborockCleanModeSettings(10)).toEqual({
+      cleanMode: 2,
+      fanPower: 103,
+      waterBoxMode: 235,
+      sequenceType: 1,
+    });
+    expect(instance.getRoborockCleanModeSettings(2).sequenceType).toBe(1);
+    expect(
+      instance.getRoborockCleanModeSettings(0).sequenceType
+    ).toBeUndefined();
+    expect(
+      instance.getRoborockCleanModeSettings(1).sequenceType
+    ).toBeUndefined();
+  });
+
+  test("a vacuum-then-mop run shows the level it runs at", () => {
+    const { instance } = vacuumFirst({ status: { seq_type: 1 } });
+    instance.rememberLiveStatus("state", CLEANING_STATE);
+    instance.rememberLiveStatus("water_box_mode", 235);
+    instance.rememberLiveStatus("fan_power", 104);
+    expect(instance.buildCleanModeCluster().currentMode).toBe(11);
+  });
+
+  test("a robot that cannot vacuum first keeps the ordinary behaviour", () => {
+    const { instance } = vacuumFirst({
+      canVacuumThenMop: false,
+      status: { water_box_mode: 235 },
+    });
+    expect(instance.buildCleanModeCluster().supportedModes[2].label).toBe(
+      "Vacuum + Mop"
+    );
+    expect(
+      instance.getRoborockCleanModeSettings(9).sequenceType
+    ).toBeUndefined();
+  });
+
+  test("works without the extended modes too: plain Vacuum + Mop vacuums first", () => {
+    const { instance } = vacuumFirst({
+      enableExtendedCleanModes: false,
+      status: { water_box_mode: 235 },
+    });
+    expect(instance.getRoborockCleanModeSettings(2).sequenceType).toBe(1);
   });
 });

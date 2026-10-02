@@ -409,14 +409,30 @@
         More cleaning modes (experimental)
         <small
           >Offers the suction levels under Vacuum &amp; Mop too, and, on robots
-          that have it, Vacuum then Mop with the same levels (Apple Home shows
-          that group from iOS 26.4). Matter fixes the mode list at pairing:
-          after turning this on, restart, then remove the robot from the Home
-          app and pair it again. Before turning it off, pick Vacuum, Mop or
-          Vacuum &amp; Mop in the Home app.</small
+          that have it, Vacuum then Mop (Apple Home lists it in the Vacuum &amp;
+          Mop menu, next to the suction levels). Matter fixes the mode list at
+          pairing: after turning this on, restart, then remove the robot from
+          the Home app and pair it again. Before turning it off, pick Vacuum,
+          Mop or Vacuum &amp; Mop in the Home app.</small
         >
       </span>
     </label>
+    <div class="checkbox-group">
+      <label class="field">
+        <span>Vacuum &amp; Mop runs</span>
+        <select id="vacuum-and-mop-order">
+          <option value="together">Vacuum and mop at once</option>
+          <option value="vacuumFirst">Vacuum first, then mop (先扫后拖)</option>
+        </select>
+        <small
+          >With &ldquo;vacuum first&rdquo;, every Vacuum &amp; Mop choice in the
+          Home app, suction levels included, vacuums the whole run before
+          mopping it, and there is no separate Vacuum then Mop entry. Robots
+          that cannot do it ignore this. Changing it needs the same re-pair as
+          above.</small
+        >
+      </label>
+    </div>
 
     <label class="checkbox">
       <input id="enable-map-camera" type="checkbox" />
