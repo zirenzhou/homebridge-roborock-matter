@@ -331,9 +331,12 @@ const RVC_CLEAN_MODE_TAG_MOP = 16386;
 // could not be had while mopping. Ids continue after Max+ and never move:
 // Matter restores a stored mode id on every start.
 //
-// The vacuum-then-mop modes carry the VacuumThenMop tag and no Vacuum or Mop
-// tag. With both, a controller asked for "vacuum and mop" could best-fit onto
-// them; the specification's tag is a primary of its own.
+// The vacuum-then-mop modes carry Vacuum, Mop AND VacuumThenMop. Apple Home
+// picks a mode with bestFitSelectingPrimaryTags(vacuum:mop:vacuumThenMop:)
+// (iOS 26.4 HomeDataModel), i.e. vacuum-then-mop is a refinement of vacuum
+// and mop rather than a group of its own: tagged VacuumThenMop alone, the
+// five modes were announced and never shown (owner's iOS 27, 2 Oct 2026).
+// matterbridge-roborock tags its "vac followed by mop" mode the same way.
 const RVC_CLEAN_MODE_TAG_VACUUM_THEN_MOP = 16387;
 const CLEAN_MODE_VACUUM_THEN_MOP = 12;
 
@@ -394,35 +397,59 @@ const EXTENDED_CLEAN_MODES: ReadonlyArray<{
     label: "Vacuum then Mop",
     fanPower: null,
     vacuumThenMop: true,
-    tags: [RVC_CLEAN_MODE_TAG_VACUUM_THEN_MOP],
+    tags: [
+      RVC_CLEAN_MODE_TAG_VACUUM,
+      RVC_CLEAN_MODE_TAG_MOP,
+      RVC_CLEAN_MODE_TAG_VACUUM_THEN_MOP,
+    ],
   },
   {
     mode: 13,
     label: "Quiet Vacuum then Mop",
     fanPower: 101,
     vacuumThenMop: true,
-    tags: [RVC_CLEAN_MODE_TAG_VACUUM_THEN_MOP, RVC_CLEAN_MODE_TAG_QUIET],
+    tags: [
+      RVC_CLEAN_MODE_TAG_VACUUM,
+      RVC_CLEAN_MODE_TAG_MOP,
+      RVC_CLEAN_MODE_TAG_VACUUM_THEN_MOP,
+      RVC_CLEAN_MODE_TAG_QUIET,
+    ],
   },
   {
     mode: 14,
     label: "Balanced Vacuum then Mop",
     fanPower: 102,
     vacuumThenMop: true,
-    tags: [RVC_CLEAN_MODE_TAG_VACUUM_THEN_MOP, RVC_CLEAN_MODE_TAG_AUTO],
+    tags: [
+      RVC_CLEAN_MODE_TAG_VACUUM,
+      RVC_CLEAN_MODE_TAG_MOP,
+      RVC_CLEAN_MODE_TAG_VACUUM_THEN_MOP,
+      RVC_CLEAN_MODE_TAG_AUTO,
+    ],
   },
   {
     mode: 15,
     label: "Turbo Vacuum then Mop",
     fanPower: 103,
     vacuumThenMop: true,
-    tags: [RVC_CLEAN_MODE_TAG_VACUUM_THEN_MOP, RVC_CLEAN_MODE_TAG_QUICK],
+    tags: [
+      RVC_CLEAN_MODE_TAG_VACUUM,
+      RVC_CLEAN_MODE_TAG_MOP,
+      RVC_CLEAN_MODE_TAG_VACUUM_THEN_MOP,
+      RVC_CLEAN_MODE_TAG_QUICK,
+    ],
   },
   {
     mode: 16,
     label: "Max Vacuum then Mop",
     fanPower: 104,
     vacuumThenMop: true,
-    tags: [RVC_CLEAN_MODE_TAG_VACUUM_THEN_MOP, RVC_CLEAN_MODE_TAG_MAX],
+    tags: [
+      RVC_CLEAN_MODE_TAG_VACUUM,
+      RVC_CLEAN_MODE_TAG_MOP,
+      RVC_CLEAN_MODE_TAG_VACUUM_THEN_MOP,
+      RVC_CLEAN_MODE_TAG_MAX,
+    ],
   },
 ];
 

@@ -94,10 +94,11 @@ describe("announced modes", () => {
     expect(tags.get(9)).toEqual([VACUUM, MOP, 0]);
     expect(tags.get(10)).toEqual([VACUUM, MOP, 1]);
     expect(tags.get(11)).toEqual([VACUUM, MOP, 7]);
-    // Vacuum then Mop is a primary of its own: no Vacuum or Mop tag, so a
-    // controller asked for "vacuum and mop" cannot best-fit onto it.
-    expect(tags.get(12)).toEqual([VACUUM_THEN_MOP]);
-    expect(tags.get(16)).toEqual([VACUUM_THEN_MOP, 7]);
+    // Vacuum then Mop refines vacuum and mop: Apple Home best-fits on
+    // (vacuum, mop, vacuumThenMop), and with VacuumThenMop alone the group
+    // was announced but never shown.
+    expect(tags.get(12)).toEqual([VACUUM, MOP, VACUUM_THEN_MOP]);
+    expect(tags.get(16)).toEqual([VACUUM, MOP, VACUUM_THEN_MOP, 7]);
     const labels = modes.map((mode) => mode.label);
     expect(new Set(labels).size).toBe(labels.length);
     expect(modes.every((mode) => mode.modeTags.length <= 8)).toBe(true);
