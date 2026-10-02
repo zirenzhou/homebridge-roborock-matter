@@ -415,6 +415,55 @@ const dockingStationStates = [
 
 // Commands that are forwarded to vacuums[duid].command() as-is, without any
 // command-specific handling in startCommand.
+// What the settings probe asks the robot, once per start. Every entry is a
+// read: a `get_*` that changes nothing. Left out on purpose, however useful:
+// anything naming the network (get_network_info, app_get_wifi_list), keys and
+// identity (get_serial_number, get_random_pkey), the camera and its video
+// sessions (get_camera_status, get_device_sdp/ice, get_turn_server,
+// get_homesec_connect_status, get_photo), voice history, locale and timezone,
+// and every map read (the map camera has its own path).
+const READ_ONLY_PROBE_METHODS = [
+  "get_status",
+  "app_get_init_status",
+  "get_custom_mode",
+  "get_water_box_custom_mode",
+  "get_mop_mode",
+  "get_clean_motor_mode",
+  "get_customize_clean_mode",
+  "get_wash_towel_mode",
+  "get_wash_water_temperature",
+  "get_smart_wash_params",
+  "get_auto_delivery_cleaning_fluid",
+  "get_dust_collection_switch_status",
+  "get_dust_collection_mode",
+  "app_get_dryer_setting",
+  "get_dock_info",
+  "get_consumable",
+  "get_clean_summary",
+  "get_server_timer",
+  "get_dnd_timer",
+  "get_valley_electricity_timer",
+  "get_carpet_mode",
+  "get_carpet_clean_mode",
+  "app_get_carpet_deep_clean_status",
+  "get_child_lock_status",
+  "get_led_status",
+  "get_flow_led_status",
+  "get_sound_volume",
+  "get_collision_avoid_status",
+  "get_identify_furniture_status",
+  "get_identify_ground_material_status",
+  "get_clean_follow_ground_material_status",
+  "get_dirty_object_detect_status",
+  "get_gap_deep_clean_status",
+  "get_pet_supplies_deep_clean_status",
+  "get_right_brush_stretch_status",
+  "get_handle_leak_water_status",
+  "get_fan_motor_work_timeout",
+  "app_get_robot_setting",
+  "app_get_clean_estimate_info",
+];
+
 const SIMPLE_VACUUM_COMMANDS = new Set([
   "app_zoned_clean",
   "app_goto_target",
@@ -450,7 +499,13 @@ const MATTER_CLEAN_MODE_PREP_MARGIN_MS = 250;
 // what to report as unconfirmed and the caller decides whether it may still
 // outrank the robot's own report. Two hand-written copies drifting apart is the
 // most repeated defect in this codebase.
-const MATTER_CLEAN_TYPE_PREP_LABELS = new Set(["water mode", "clean type"]);
+// "clean sequence" is the vacuum-then-mop choice: the run's type as much as
+// the water mode is.
+const MATTER_CLEAN_TYPE_PREP_LABELS = new Set([
+  "water mode",
+  "clean type",
+  "clean sequence",
+]);
 // How long to wait before retrying to cache rooms for a saved map that did not
 // return room segments. Retrying lets newly named/segmented maps appear without
 // switching maps on every poll cycle.
@@ -2838,6 +2893,12 @@ class Roborock {
       canMaxPlusFanPower: supportsMaxPlusFanPower(
         this.getProductAttribute(duid, "model")
       ),
+      // 先扫后拖. From the HomeData feature string only, never from a live
+      // status field: the announced mode list must be the same on every
+      // start, and status arrives after the first cluster build.
+      canVacuumThenMop:
+        (hasWaterModeSchema || hasMopSchema || hasMopFeature) &&
+        this.hasVacuumFeature(duid, "isCleanThenMopModeSupported"),
       canControlWater:
         hasWaterModeSchema ||
         this.hasVacuumFeature(duid, [
@@ -3132,7 +3193,55 @@ class Roborock {
     // robot mopped. Sizing each command against what is LEFT of the window is
     // what makes the order matter — the mode-carrying command now gets the
     // window, and a cosmetic one that no longer fits is reported, not started.
-    if (Number.isInteger(settings?.waterBoxMode)) {
+    // Vacuum-then-mop is a property of the run, set with one command that
+    // also carries the suction, water and route — the command the Roborock
+    // app itself sends. It goes first because it carries the user's choice;
+    // when the robot takes it, the separate water and suction commands below
+    // would only repeat it, and are skipped.
+    let sequenceApplied = false;
+    if (Number.isInteger(settings?.sequenceType)) {
+      const liveSequence = Number(this.getVacuumDeviceStatus(duid, "seq_type"));
+      const wanted = settings.sequenceType === 1 ? 1 : 0;
+      const needed =
+        wanted === 1 || (Number.isInteger(liveSequence) && liveSequence === 1);
+      const command = "app_set_clean_sequence_type";
+      const unsupported = this.matterUnsupportedSettingCommands.has(
+        this.getMatterSettingCommandKey(duid, command)
+      );
+      if (needed && !unsupported) {
+        const sequenceOptions = takeCommandOptions("clean sequence");
+        if (sequenceOptions) {
+          const mopMode = Number(this.getVacuumDeviceStatus(duid, "mop_mode"));
+          const params = {
+            type: wanted,
+            ...(Number.isInteger(settings.fanPower)
+              ? { fan_power: settings.fanPower }
+              : {}),
+            ...(Number.isInteger(settings.waterBoxMode)
+              ? { water_box_mode: settings.waterBoxMode }
+              : {}),
+            mop_mode: mopMode >= 300 && mopMode < 400 ? mopMode : 300,
+          };
+          try {
+            await this.runMatterSettingCommand(
+              duid,
+              command,
+              params,
+              sequenceOptions
+            );
+            sequenceApplied = true;
+          } catch (error) {
+            this.rememberUnsupportedMatterSettingCommand(duid, command, error);
+            unconfirmedSettings.push("clean sequence");
+            this.log.debug(
+              `Matter clean mode sequence command failed for ${duid}; continuing with the water and suction commands. ${error.message || error}`
+            );
+          }
+        }
+      }
+    }
+
+    if (Number.isInteger(settings?.waterBoxMode) && !sequenceApplied) {
       const waterCommands = this.getMatterWaterModeCommandCandidates(duid);
 
       if (waterCommands.length === 0) {
@@ -3166,6 +3275,7 @@ class Roborock {
 
     if (
       Number.isInteger(settings?.fanPower) &&
+      !sequenceApplied &&
       this.getMatterCleanModeCapabilities(duid).canControlFanPower
     ) {
       const fanOptions = takeCommandOptions("suction level");
@@ -6733,33 +6843,60 @@ class Roborock {
    * @returns {Promise<Record<string, unknown>>}
    */
   async probeDockSettings(duid) {
-    const methods = [
-      "get_wash_towel_mode",
-      "get_wash_water_temperature",
-      "get_smart_wash_params",
-      "get_auto_delivery_cleaning_fluid",
-      "get_dust_collection_switch_status",
-      "get_dust_collection_mode",
-      "app_get_dryer_setting",
-    ];
     const answers = {};
-    for (const method of methods) {
+    for (const method of READ_ONLY_PROBE_METHODS) {
       try {
         answers[method] = await this.messageQueueHandler.sendRequest(
           duid,
           method,
           [],
-          false
+          false,
+          false,
+          { preferCloud: true, requestTimeoutMs: 15000 }
         );
       } catch (error) {
         answers[method] =
           `no answer: ${String(error?.message || error).slice(0, 80)}`;
       }
     }
+    const features = this.vacuums[duid]?.features?.getFeatureList?.() ?? {};
+    const report = {
+      model: this.getProductAttribute(duid, "model"),
+      featureSet: this.vacuums[duid]?.features?.features ?? null,
+      newFeatureSet: this.vacuums[duid]?.features?.featuresStr ?? null,
+      cleanThenMopSupported: Boolean(features.isCleanThenMopModeSupported),
+      answers,
+    };
+    const file = this.writeProbeReport(duid, report);
     this.log.info(
-      `Dock settings of ${this.describeDevice(duid)} (read only): ${JSON.stringify(answers)}`
+      `Read-only settings of ${this.describeDevice(duid)}${file ? ` (also in ${file})` : ""}: ${JSON.stringify(report)}`
     );
     return answers;
+  }
+
+  /**
+   * Keep the probe's answers next to Homebridge's own storage, so they can be
+   * read in full later; the log line is easy to lose. Never leaves the host.
+   * @returns {string | null} the file written
+   */
+  writeProbeReport(duid, report) {
+    if (!this.config.storagePath) {
+      return null;
+    }
+    try {
+      const directory = path.join(this.config.storagePath, "roborock-matter");
+      fs.mkdirSync(directory, { recursive: true });
+      const id = require("crypto")
+        .createHash("sha1")
+        .update(String(duid))
+        .digest("hex")
+        .slice(0, 16);
+      const file = path.join(directory, `probe-${id}.json`);
+      fs.writeFileSync(file, `${JSON.stringify(report, null, 2)}\n`);
+      return file;
+    } catch {
+      return null;
+    }
   }
 
   /**

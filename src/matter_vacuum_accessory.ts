@@ -80,12 +80,16 @@ type MatterCleanModeCapabilities = {
   // exists — model guessing is exactly what this fork is moving away from.
   canMaxPlusFanPower?: boolean;
   canControlWater?: boolean;
+  // Roborock's "vacuum, then mop" (先扫后拖), from the HomeData feature bits.
+  canVacuumThenMop?: boolean;
 };
 
 type RoborockCleanModeSettings = {
   cleanMode?: number;
   fanPower?: number;
   waterBoxMode?: number | null;
+  // 1 = vacuum the whole run first, then mop it; 0 = both at once.
+  sequenceType?: number;
 };
 
 type RoborockCommandOptions = {
@@ -318,6 +322,109 @@ const RVC_RUN_MODE_TAG_IDLE = 16384;
 const RVC_RUN_MODE_TAG_CLEANING = 16385;
 const RVC_CLEAN_MODE_TAG_VACUUM = 16385;
 const RVC_CLEAN_MODE_TAG_MOP = 16386;
+
+// Extended clean modes (enableExtendedCleanModes, off by default): the
+// suction levels again under Vacuum + Mop, and Roborock's "vacuum, then mop"
+// (先扫后拖) with the same levels. Apple Home groups modes by their primary
+// tag — Vacuum, Mop, Vacuum + Mop, and since iOS 26.4 VacuumThenMop — and
+// picks the intensity inside the group, so a level offered only under Vacuum
+// could not be had while mopping. Ids continue after Max+ and never move:
+// Matter restores a stored mode id on every start.
+//
+// The vacuum-then-mop modes carry the VacuumThenMop tag and no Vacuum or Mop
+// tag. With both, a controller asked for "vacuum and mop" could best-fit onto
+// them; the specification's tag is a primary of its own.
+const RVC_CLEAN_MODE_TAG_VACUUM_THEN_MOP = 16387;
+const CLEAN_MODE_VACUUM_THEN_MOP = 12;
+
+const EXTENDED_CLEAN_MODES: ReadonlyArray<{
+  mode: number;
+  label: string;
+  // null: keep the suction the robot already has.
+  fanPower: number | null;
+  vacuumThenMop: boolean;
+  tags: number[];
+}> = [
+  {
+    mode: 8,
+    label: "Quiet Vacuum + Mop",
+    fanPower: 101,
+    vacuumThenMop: false,
+    tags: [
+      RVC_CLEAN_MODE_TAG_VACUUM,
+      RVC_CLEAN_MODE_TAG_MOP,
+      RVC_CLEAN_MODE_TAG_QUIET,
+    ],
+  },
+  {
+    mode: 9,
+    label: "Balanced Vacuum + Mop",
+    fanPower: 102,
+    vacuumThenMop: false,
+    tags: [
+      RVC_CLEAN_MODE_TAG_VACUUM,
+      RVC_CLEAN_MODE_TAG_MOP,
+      RVC_CLEAN_MODE_TAG_AUTO,
+    ],
+  },
+  {
+    mode: 10,
+    label: "Turbo Vacuum + Mop",
+    fanPower: 103,
+    vacuumThenMop: false,
+    tags: [
+      RVC_CLEAN_MODE_TAG_VACUUM,
+      RVC_CLEAN_MODE_TAG_MOP,
+      RVC_CLEAN_MODE_TAG_QUICK,
+    ],
+  },
+  {
+    mode: 11,
+    label: "Max Vacuum + Mop",
+    fanPower: 104,
+    vacuumThenMop: false,
+    tags: [
+      RVC_CLEAN_MODE_TAG_VACUUM,
+      RVC_CLEAN_MODE_TAG_MOP,
+      RVC_CLEAN_MODE_TAG_MAX,
+    ],
+  },
+  {
+    mode: CLEAN_MODE_VACUUM_THEN_MOP,
+    label: "Vacuum then Mop",
+    fanPower: null,
+    vacuumThenMop: true,
+    tags: [RVC_CLEAN_MODE_TAG_VACUUM_THEN_MOP],
+  },
+  {
+    mode: 13,
+    label: "Quiet Vacuum then Mop",
+    fanPower: 101,
+    vacuumThenMop: true,
+    tags: [RVC_CLEAN_MODE_TAG_VACUUM_THEN_MOP, RVC_CLEAN_MODE_TAG_QUIET],
+  },
+  {
+    mode: 14,
+    label: "Balanced Vacuum then Mop",
+    fanPower: 102,
+    vacuumThenMop: true,
+    tags: [RVC_CLEAN_MODE_TAG_VACUUM_THEN_MOP, RVC_CLEAN_MODE_TAG_AUTO],
+  },
+  {
+    mode: 15,
+    label: "Turbo Vacuum then Mop",
+    fanPower: 103,
+    vacuumThenMop: true,
+    tags: [RVC_CLEAN_MODE_TAG_VACUUM_THEN_MOP, RVC_CLEAN_MODE_TAG_QUICK],
+  },
+  {
+    mode: 16,
+    label: "Max Vacuum then Mop",
+    fanPower: 104,
+    vacuumThenMop: true,
+    tags: [RVC_CLEAN_MODE_TAG_VACUUM_THEN_MOP, RVC_CLEAN_MODE_TAG_MAX],
+  },
+];
 
 const ROBOROCK_FAN_POWER_OFF = 105;
 const ROBOROCK_FAN_POWER_BALANCED = 102;
@@ -3124,7 +3231,72 @@ export default class RoborockMatterVacuumAccessory {
       }
     }
 
+    for (const extended of this.getAnnouncedExtendedCleanModes(capabilities)) {
+      supportedModes.push({
+        label: extended.label,
+        mode: extended.mode,
+        modeTags: extended.tags.map((value) => ({ value })),
+      });
+    }
+
     return supportedModes;
+  }
+
+  private isExtendedCleanModesEnabled(): boolean {
+    return this.platform.platformConfig.enableExtendedCleanModes === true;
+  }
+
+  /**
+   * The extended modes this robot announces: the Vacuum + Mop levels when it
+   * mops and has suction control, the vacuum-then-mop modes only when its
+   * feature bits say it can. Everything here comes from HomeData, so the
+   * list is the same on every start.
+   */
+  private getAnnouncedExtendedCleanModes(
+    capabilities: MatterCleanModeCapabilities = this.getMatterCleanModeCapabilities()
+  ): typeof EXTENDED_CLEAN_MODES {
+    if (
+      !this.isExtendedCleanModesEnabled() ||
+      !capabilities.canMop ||
+      capabilities.canControlFanPower !== true
+    ) {
+      return [];
+    }
+    return EXTENDED_CLEAN_MODES.filter(
+      (extended) =>
+        !extended.vacuumThenMop || capabilities.canVacuumThenMop === true
+    );
+  }
+
+  private getExtendedCleanMode(
+    cleanMode: number
+  ): (typeof EXTENDED_CLEAN_MODES)[number] | null {
+    return (
+      EXTENDED_CLEAN_MODES.find((extended) => extended.mode === cleanMode) ??
+      null
+    );
+  }
+
+  /**
+   * The extended mode matching what a vacuum-and-mop run is actually doing:
+   * its sequence from `seq_type`, its level from `fan_power`. Null when
+   * extended modes are off or nothing announced matches, so the caller keeps
+   * plain Vacuum + Mop.
+   */
+  private resolveLiveExtendedCleanMode(): number | null {
+    const announced = this.getAnnouncedExtendedCleanModes();
+    if (announced.length === 0) {
+      return null;
+    }
+    const vacuumThenMop = this.getNumberStatus("seq_type") === 1;
+    const fanPower = this.getNumberStatus("fan_power");
+    const family = announced.filter(
+      (extended) => extended.vacuumThenMop === vacuumThenMop
+    );
+    const match =
+      family.find((extended) => extended.fanPower === fanPower) ??
+      family.find((extended) => extended.fanPower === null);
+    return match?.mode ?? null;
   }
 
   private isFanPowerCleanModesEnabled(): boolean {
@@ -3162,6 +3334,17 @@ export default class RoborockMatterVacuumAccessory {
       // confirms a suction variant. Base clean-type changes have no equivalent
       // independent signal and still require the robot to report a live type.
       return this.getNumberStatus("fan_power") === fanPowerMode.fanPower;
+    }
+
+    const extended = this.getExtendedCleanMode(cleanMode);
+    if (extended) {
+      const sequence = this.getNumberStatus("seq_type");
+      if (sequence !== null && (sequence === 1) !== extended.vacuumThenMop) {
+        return false;
+      }
+      if (extended.fanPower !== null) {
+        return this.getNumberStatus("fan_power") === extended.fanPower;
+      }
     }
 
     return liveType !== null;
@@ -3244,6 +3427,9 @@ export default class RoborockMatterVacuumAccessory {
         this.isSupportedCleanMode(liveCleanType) &&
         this.acceptLiveCleanType(liveCleanType)
       ) {
+        if (liveCleanType === CLEAN_MODE_VACUUM_AND_MOP) {
+          return this.resolveLiveExtendedCleanMode() ?? liveCleanType;
+        }
         if (liveCleanType !== CLEAN_MODE_VACUUM) {
           return liveCleanType;
         }
@@ -3265,8 +3451,9 @@ export default class RoborockMatterVacuumAccessory {
       // Same reason as above: the fan power the robot reports on its way home
       // is the one it reset to, not the one it cleaned with.
       !windingDown &&
-      selected !== CLEAN_MODE_MOP &&
-      selected !== CLEAN_MODE_VACUUM_AND_MOP
+      // Vacuum family only: Mop, Vacuum + Mop and the extended mop modes are
+      // identified by their clean type, not by the fan level alone.
+      this.getBaseCleanType(selected) === CLEAN_MODE_VACUUM
     ) {
       const liveFanPower = this.getNumberStatus("fan_power");
       if (liveFanPower !== null) {
@@ -3349,6 +3536,9 @@ export default class RoborockMatterVacuumAccessory {
    * apart — the most repeated defect in this codebase — so there is one.
    */
   private getBaseCleanType(cleanMode: number): number {
+    if (this.getExtendedCleanMode(cleanMode)) {
+      return CLEAN_MODE_VACUUM_AND_MOP;
+    }
     return this.getFanPowerCleanMode(cleanMode) ? CLEAN_MODE_VACUUM : cleanMode;
   }
 
@@ -3616,13 +3806,28 @@ export default class RoborockMatterVacuumAccessory {
     // a native clean-type concept (B01/Q7) apply it directly and ignore the
     // v1-style fan/water workarounds below.
     const settings: RoborockCleanModeSettings = { cleanMode: baseCleanMode };
+    const extended = this.getExtendedCleanMode(cleanMode);
 
     if (capabilities.canControlFanPower) {
       settings.fanPower = fanPowerMode
         ? fanPowerMode.fanPower
-        : baseCleanMode === CLEAN_MODE_MOP
-          ? ROBOROCK_FAN_POWER_OFF
-          : this.getPreferredVacuumFanPower();
+        : extended?.fanPower != null
+          ? extended.fanPower
+          : baseCleanMode === CLEAN_MODE_MOP
+            ? ROBOROCK_FAN_POWER_OFF
+            : this.getPreferredVacuumFanPower();
+    }
+
+    // Only once vacuum-then-mop is on offer, and only for runs that mop and
+    // vacuum: otherwise a robot left on 先扫后拖 in the Roborock app would be
+    // switched back by a Matter start that never mentioned it.
+    if (
+      baseCleanMode === CLEAN_MODE_VACUUM_AND_MOP &&
+      this.getAnnouncedExtendedCleanModes(capabilities).some(
+        (announced) => announced.vacuumThenMop
+      )
+    ) {
+      settings.sequenceType = extended?.vacuumThenMop ? 1 : 0;
     }
 
     if (capabilities.canControlWater) {
@@ -3684,6 +3889,10 @@ export default class RoborockMatterVacuumAccessory {
     const fanPowerMode = this.getFanPowerCleanMode(cleanMode);
     if (fanPowerMode) {
       return fanPowerMode.label;
+    }
+    const extended = this.getExtendedCleanMode(cleanMode);
+    if (extended) {
+      return extended.label;
     }
     switch (cleanMode) {
       case CLEAN_MODE_MOP:

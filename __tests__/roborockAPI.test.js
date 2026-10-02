@@ -525,6 +525,8 @@ describe("Roborock API model and diagnostics helpers", () => {
       canControlFanPower: true,
       canMaxPlusFanPower: false,
       canControlWater: true,
+      // No new-feature string in this HomeData, so no vacuum-then-mop.
+      canVacuumThenMop: false,
     });
     expect(api.getVacuumDeviceStatus("device-1", "fan_power")).toBe("104");
     expect(api.getMatterWaterModeCommandCandidates("device-1")).toEqual([

@@ -994,6 +994,9 @@ class deviceFeatures {
       isCleanRouteFastModeSupported:
         this.featuresStr &&
         !!(256 & parseInt("0x" + this.featuresStr.slice(-8))),
+      // "Vacuum, then mop" (先扫后拖): python-roborock's CLEAN_THEN_MOP_MODE,
+      // bit 93 of the new-feature string, read the way the app reads it.
+      isCleanThenMopModeSupported: hasNewFeatureStrBit(this.featuresStr, 93),
       isVideoLiveCallSupported: [
         "roborock.vacuum.a10", // S6 MaxV
         "roborock.vacuum.a27", // S7 MaxV (Ultra)
@@ -1551,9 +1554,32 @@ class deviceFeatures {
 //   table. Adding it would have offered every Qrevo S owner a level their robot
 //   does not have, and — because the announced clean-mode list is fixed at
 //   commissioning — the only way to pick up the corrected list is a re-pair.
+//
+// - a225 (P20 Ultra Plus). Its owner reports the Roborock app offers more
+//   than four levels, and the published spec lists five: Quiet, Balanced,
+//   Turbo, Max and Max+ (vacuum only).
 const MAX_PLUS_FAN_POWER_MODELS = new Set([
   "roborock.vacuum.a70", // S8 Pro Ultra
+  "roborock.vacuum.a225", // P20 Ultra Plus
 ]);
+
+/**
+ * One bit of the robot's new-feature hex string, counted from its right-hand
+ * end: bit n lives in hex digit n / 4 from the end, at position n % 4.
+ * @param {string | undefined} featuresStr
+ * @param {number} bit
+ */
+function hasNewFeatureStrBit(featuresStr, bit) {
+  if (typeof featuresStr !== "string" || featuresStr === "") {
+    return false;
+  }
+  const fromEnd = 1 + Math.floor(bit / 4);
+  if (fromEnd > featuresStr.length) {
+    return false;
+  }
+  const nibble = parseInt(featuresStr[featuresStr.length - fromEnd], 16);
+  return Number.isInteger(nibble) && ((nibble >> bit % 4) & 1) === 1;
+}
 
 /** @param {string} model */
 function supportsMaxPlusFanPower(model) {
@@ -1675,6 +1701,7 @@ module.exports = {
   deviceFeatures,
   errorCodes,
   isKnownStatusAttribute,
+  hasNewFeatureStrBit,
   supportsMaxPlusFanPower,
   getModelMarketingName,
   getModelNameWithoutBrand,

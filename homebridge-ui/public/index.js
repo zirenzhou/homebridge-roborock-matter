@@ -24,6 +24,9 @@ const elements = {
   homeKitActionPause: document.getElementById("homekit-action-pause"),
   homeKitActionLocate: document.getElementById("homekit-action-locate"),
   enableMapCamera: document.getElementById("enable-map-camera"),
+  enableExtendedCleanModes: document.getElementById(
+    "enable-extended-clean-modes"
+  ),
   matterButtons: {
     dock: document.getElementById("matter-button-dock"),
     empty: document.getElementById("matter-button-empty"),
@@ -225,6 +228,10 @@ async function loadConfig() {
     if (elements.enableMapCamera) {
       elements.enableMapCamera.checked = config.enableMapCamera === true;
     }
+    if (elements.enableExtendedCleanModes) {
+      elements.enableExtendedCleanModes.checked =
+        config.enableExtendedCleanModes === true;
+    }
     const matterButtons = Array.isArray(config.matterDockButtons)
       ? config.matterDockButtons
       : [];
@@ -403,6 +410,7 @@ async function describeEnabledMatterFeatures() {
     ["cleanMode", config.enableMatterCleanMode !== false],
     ["powerSource", config.enableMatterPowerSource !== false],
     ["fanPowerCleanModes", config.enableFanPowerCleanModes !== false],
+    ["extendedCleanModes", config.enableExtendedCleanModes === true],
     [
       "extendedOperationalStates",
       config.enableMatterExtendedOperationalStates !== false,
@@ -740,6 +748,9 @@ function getFormValues() {
     ),
     homeKitStateSensors: getSavedStateSensorSelection(),
     enableMapCamera: Boolean(elements.enableMapCamera?.checked),
+    enableExtendedCleanModes: Boolean(
+      elements.enableExtendedCleanModes?.checked
+    ),
     matterDockButtons: Object.entries(elements.matterButtons)
       .filter(([, element]) => element?.checked)
       .map(([key]) => key),
