@@ -29,6 +29,7 @@ function createAccessory({
   enableExtendedCleanModes = true,
   canVacuumThenMop = true,
   vacuumAndMopOrder,
+  cleanModeNames,
   status = {},
 } = {}) {
   const platform = {
@@ -37,6 +38,7 @@ function createAccessory({
       enableFanPowerCleanModes: true,
       enableExtendedCleanModes,
       vacuumAndMopOrder,
+      cleanModeNames,
     },
     log: {
       debug: jest.fn(),
@@ -434,5 +436,69 @@ describe("Vacuum + Mop that always vacuums first", () => {
       status: { water_box_mode: 235 },
     });
     expect(instance.getRoborockCleanModeSettings(2).sequenceType).toBe(1);
+  });
+});
+
+describe("suction levels named as in the Roborock app", () => {
+  // Apple Home names a level after its tag, and no standard tag means
+  // "standard" or "turbo". A tag carrying a MfgCode is the manufacturer's own,
+  // where a controller falls back to the label; the value stays a standard one
+  // because matter.js refuses anything outside the ModeTag enum.
+  const MFG = 0xfff1;
+  const roborockNames = () =>
+    createAccessory({
+      cleanModeNames: "roborock",
+      vacuumAndMopOrder: "vacuumFirst",
+    });
+
+  test("the five vacuum levels carry the app's names and manufacturer-coded tags", () => {
+    const { instance } = roborockNames();
+    const modes = new Map(
+      instance
+        .buildCleanModeCluster()
+        .supportedModes.map((mode) => [mode.mode, mode])
+    );
+    expect([3, 4, 5, 6, 7].map((id) => modes.get(id).label)).toEqual([
+      "安静",
+      "标准",
+      "强力",
+      "Max",
+      "Max+",
+    ]);
+    expect(modes.get(4).modeTags).toEqual([
+      { value: VACUUM },
+      { mfgCode: MFG, value: 0 },
+    ]);
+    expect(modes.get(7).modeTags).toEqual([
+      { value: VACUUM },
+      { mfgCode: MFG, value: 16384 },
+    ]);
+  });
+
+  test("the Vacuum + Mop levels look the same and stay unique", () => {
+    const { instance } = roborockNames();
+    const modes = instance.buildCleanModeCluster().supportedModes;
+    const byMode = new Map(modes.map((mode) => [mode.mode, mode]));
+    expect(byMode.get(10).label.replace(/\u200b/g, "")).toBe("强力");
+    expect(byMode.get(10).label).not.toBe(byMode.get(5).label);
+    expect(byMode.get(10).modeTags).toEqual([
+      { value: VACUUM },
+      { value: MOP },
+      { mfgCode: MFG, value: 1 },
+    ]);
+    const labels = modes.map((mode) => mode.label);
+    expect(new Set(labels).size).toBe(labels.length);
+    // Primary tags stay standard, so Apple Home still finds its three menus.
+    expect(byMode.get(0).modeTags).toEqual([{ value: VACUUM }]);
+    expect(byMode.get(2).modeTags).toEqual([{ value: VACUUM }, { value: MOP }]);
+  });
+
+  test("off by default: standard tags, English labels", () => {
+    const { instance } = createAccessory();
+    const mode = instance
+      .buildCleanModeCluster()
+      .supportedModes.find((entry) => entry.mode === 4);
+    expect(mode.label).toBe("Balanced Vacuum");
+    expect(mode.modeTags).toEqual([{ value: VACUUM }, { value: 0 }]);
   });
 });

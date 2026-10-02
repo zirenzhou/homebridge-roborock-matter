@@ -28,6 +28,7 @@ const elements = {
     "enable-extended-clean-modes"
   ),
   vacuumAndMopOrder: document.getElementById("vacuum-and-mop-order"),
+  cleanModeNames: document.getElementById("clean-mode-names"),
   matterButtons: {
     dock: document.getElementById("matter-button-dock"),
     empty: document.getElementById("matter-button-empty"),
@@ -245,6 +246,10 @@ async function loadConfig() {
           ? Number(config.mapCameraRotation)
           : 0
       );
+    }
+    if (elements.cleanModeNames) {
+      elements.cleanModeNames.value =
+        config.cleanModeNames === "roborock" ? "roborock" : "apple";
     }
     if (elements.vacuumAndMopOrder) {
       elements.vacuumAndMopOrder.value =
@@ -756,6 +761,8 @@ function getFormValues() {
     enableExtendedCleanModes: Boolean(
       elements.enableExtendedCleanModes?.checked
     ),
+    cleanModeNames:
+      elements.cleanModeNames?.value === "roborock" ? "roborock" : "apple",
     vacuumAndMopOrder:
       elements.vacuumAndMopOrder?.value === "vacuumFirst"
         ? "vacuumFirst"

@@ -80,6 +80,7 @@ export interface RoborockPlatformConfig extends PlatformConfig {
   enableFanPowerCleanModes?: boolean;
   enableExtendedCleanModes?: boolean;
   vacuumAndMopOrder?: "together" | "vacuumFirst";
+  cleanModeNames?: "apple" | "roborock";
   enableMatterExtendedOperationalStates?: boolean;
   enableMatterChargingDockedStates?: boolean;
   enableMatterFaultReporting?: boolean;

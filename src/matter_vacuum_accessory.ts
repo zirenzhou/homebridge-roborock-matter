@@ -318,6 +318,34 @@ const MAX_PLUS_FAN_POWER_CLEAN_MODE: (typeof FAN_POWER_CLEAN_MODES)[number] = {
   extraTags: [RVC_CLEAN_MODE_TAG_DEEP_CLEAN],
 };
 
+// cleanModeNames "roborock": the suction levels carry the Roborock app's
+// names. Apple Home names a level after its tag and ignores the label, and
+// no standard tag means "standard" or "turbo". A tag with a MfgCode belongs to
+// that manufacturer's namespace, where the standard name no longer applies,
+// and the specification has a controller fall back to the label. The values
+// stay the standard ones: matter.js refuses a value outside the ModeTag enum
+// (ValueValidator "defined in enum"), and a controller that ignores MfgCode
+// shows exactly what it showed before. 0xFFF1 is the vendor Homebridge's
+// Matter nodes already announce.
+const ROBOROCK_NAMES_MFG_CODE = 0xfff1;
+const SUCTION_LEVEL_TAGS = new Set([
+  RVC_CLEAN_MODE_TAG_AUTO,
+  RVC_CLEAN_MODE_TAG_QUICK,
+  RVC_CLEAN_MODE_TAG_QUIET,
+  RVC_CLEAN_MODE_TAG_MAX,
+  RVC_CLEAN_MODE_TAG_DEEP_CLEAN,
+]);
+const ROBOROCK_SUCTION_NAMES: Readonly<Record<number, string>> = {
+  101: "安静",
+  102: "标准",
+  103: "强力",
+  104: "Max",
+  108: "Max+",
+};
+// Mode labels must be unique, and both the Vacuum and the Vacuum + Mop menus
+// have every level: the second copy carries an invisible zero-width space.
+const SECOND_MENU_MARK = "\u200b";
+
 const RVC_RUN_MODE_TAG_IDLE = 16384;
 const RVC_RUN_MODE_TAG_CLEANING = 16385;
 const RVC_CLEAN_MODE_TAG_VACUUM = 16385;
@@ -3249,25 +3277,59 @@ export default class RoborockMatterVacuumAccessory {
           : FAN_POWER_CLEAN_MODES;
       for (const powerMode of powerModes) {
         supportedModes.push({
-          label: powerMode.label,
+          label:
+            this.getRoborockSuctionName(powerMode.fanPower) ?? powerMode.label,
           mode: powerMode.mode,
-          modeTags: [
-            { value: RVC_CLEAN_MODE_TAG_VACUUM },
-            ...powerMode.extraTags.map((value) => ({ value })),
-          ],
+          modeTags: this.toModeTags([
+            RVC_CLEAN_MODE_TAG_VACUUM,
+            ...powerMode.extraTags,
+          ]),
         });
       }
     }
 
     for (const extended of this.getAnnouncedExtendedCleanModes(capabilities)) {
+      // The separate vacuum-then-mop modes keep their standard names: Apple
+      // Home lists them by their VacuumThenMop tag, next to these levels.
+      const roborockName = extended.vacuumThenMop
+        ? null
+        : this.getRoborockSuctionName(extended.fanPower);
       supportedModes.push({
-        label: this.getVacuumAndMopLabel(extended.label),
+        label:
+          roborockName !== null
+            ? `${roborockName}${SECOND_MENU_MARK}`
+            : this.getVacuumAndMopLabel(extended.label),
         mode: extended.mode,
-        modeTags: extended.tags.map((value) => ({ value })),
+        modeTags: extended.vacuumThenMop
+          ? extended.tags.map((value) => ({ value }))
+          : this.toModeTags(extended.tags),
       });
     }
 
     return supportedModes;
+  }
+
+  private useRoborockSuctionNames(): boolean {
+    return this.platform.platformConfig.cleanModeNames === "roborock";
+  }
+
+  /** The Roborock app's name for a suction level, when those are in use. */
+  private getRoborockSuctionName(fanPower: number | null): string | null {
+    if (!this.useRoborockSuctionNames() || fanPower === null) {
+      return null;
+    }
+    return ROBOROCK_SUCTION_NAMES[fanPower] ?? null;
+  }
+
+  private toModeTags(
+    values: ReadonlyArray<number>
+  ): Array<{ value: number; mfgCode?: number }> {
+    const roborockNames = this.useRoborockSuctionNames();
+    return values.map((value) =>
+      roborockNames && SUCTION_LEVEL_TAGS.has(value)
+        ? { mfgCode: ROBOROCK_NAMES_MFG_CODE, value }
+        : { value }
+    );
   }
 
   private isExtendedCleanModesEnabled(): boolean {
