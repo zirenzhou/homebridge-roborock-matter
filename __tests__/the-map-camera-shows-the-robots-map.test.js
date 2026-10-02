@@ -503,3 +503,28 @@ describe("the clean sequence", () => {
     expect(roborock.getCachedCleanSequence("duid-1")).toBeNull();
   });
 });
+
+describe("keeping the picture current", () => {
+  test("a tile on screen asks for a fresh map at most once a minute", () => {
+    jest.useFakeTimers();
+    try {
+      const requestMap = jest.fn();
+      const camera = new RoborockMapCameraAccessory(
+        fakePlatform(),
+        fakeAccessory("Rocky Map"),
+        "duid-1",
+        { storagePath: tempStorage(), ffmpegPath: "ffmpeg", requestMap }
+      );
+      const done = jest.fn();
+      camera.handleSnapshotRequest({ width: 320, height: 180 }, done);
+      camera.handleSnapshotRequest({ width: 320, height: 180 }, done);
+      expect(requestMap).toHaveBeenCalledTimes(1);
+      jest.advanceTimersByTime(61_000);
+      camera.handleSnapshotRequest({ width: 320, height: 180 }, done);
+      expect(requestMap).toHaveBeenCalledTimes(2);
+      expect(done).toHaveBeenCalledTimes(3);
+    } finally {
+      jest.useRealTimers();
+    }
+  });
+});

@@ -101,7 +101,12 @@ type Palette = {
   backgroundTop: Rgb;
   backgroundBottom: Rgb;
   floor: Rgb;
-  wall: Rgb;
+  /** The outline of the home: the strongest line on the picture. */
+  outerWall: Rgb;
+  /** Walls between rooms. */
+  innerWall: Rgb;
+  /** How much of a room's colour shows where the robot has not been. */
+  uncleanedAlpha: number;
   rooms: { fill: Rgb; ink: Rgb; badgeText: Rgb }[];
   cleanedAlpha: number;
   pathAlpha: number;
@@ -117,14 +122,16 @@ const LIGHT: Palette = {
   backgroundTop: hex("#e4eaf0"),
   backgroundBottom: hex("#eef0f2"),
   floor: hex("#d5dbe3"),
-  wall: hex("#747a82"),
+  outerWall: hex("#2f353d"),
+  innerWall: hex("#7a828c"),
+  uncleanedAlpha: 0.42,
   rooms: ROOM_COLORS.map(({ fill, ink }) => ({
     fill,
     ink,
     badgeText: hex("#ffffff"),
   })),
   cleanedAlpha: 0.6,
-  pathAlpha: 0.85,
+  pathAlpha: 0.4,
   textureAlpha: 0.13,
   title: hex("#1c1d1f"),
   subtitle: hex("#5a5d60"),
@@ -137,14 +144,16 @@ const DARK: Palette = {
   backgroundTop: hex("#15181d"),
   backgroundBottom: hex("#1c2026"),
   floor: hex("#2c323b"),
-  wall: hex("#9aa1ab"),
+  outerWall: hex("#e6eaf0"),
+  innerWall: hex("#8d96a3"),
+  uncleanedAlpha: 0.5,
   rooms: ROOM_COLORS.map(({ fill }) => ({
     fill: mixRgb(fill, hex("#14171c"), 0.45),
     ink: mixRgb(fill, hex("#ffffff"), 0.35),
     badgeText: hex("#14171c"),
   })),
   cleanedAlpha: 0.2,
-  pathAlpha: 0.55,
+  pathAlpha: 0.3,
   textureAlpha: 0.18,
   title: hex("#f2f3f5"),
   subtitle: hex("#a3a8b0"),
@@ -238,7 +247,10 @@ type Geometry = {
   height: number;
   footprint: Loop[];
   floor: Loop[];
-  walls: Loop[];
+  /** Walls along the outside of the home. */
+  outerWalls: Loop[];
+  /** Walls between rooms. */
+  innerWalls: Loop[];
   rooms: RoomGeometry[];
   carpet: Loop[];
   /**
@@ -383,6 +395,35 @@ function buildGeometry(map: ClassicMap): Geometry {
     clutter.set(room, outline(mask, 0.5));
   }
 
+  // What is left are walls proper. Those within two pixels of the outside
+  // are the outline of the home and are drawn strongest.
+  const outer = new Uint8Array(width * height);
+  const inner = new Uint8Array(width * height);
+  for (let y = 0; y < height; y++) {
+    for (let x = 0; x < width; x++) {
+      const i = y * width + x;
+      if (!walls[i]) continue;
+      let outside = false;
+      for (let dy = -2; dy <= 2 && !outside; dy++) {
+        for (let dx = -2; dx <= 2; dx++) {
+          const nx = x + dx;
+          const ny = y + dy;
+          if (
+            nx < 0 ||
+            ny < 0 ||
+            nx >= width ||
+            ny >= height ||
+            !footprint[ny * width + nx]
+          ) {
+            outside = true;
+            break;
+          }
+        }
+      }
+      (outside ? outer : inner)[i] = 1;
+    }
+  }
+
   let carpet: Loop[] = [];
   if (map.carpet && map.carpet.length >= width * height) {
     const mask = new Uint8Array(width * height);
@@ -467,7 +508,8 @@ function buildGeometry(map: ClassicMap): Geometry {
     height,
     footprint: outline(footprint, 0.65),
     floor: outline(floor, 0.65),
-    walls: outline(walls, 0.75),
+    outerWalls: outline(outer, 0.75),
+    innerWalls: outline(inner, 0.75),
     rooms,
     carpet,
     clutter,
@@ -565,20 +607,17 @@ export function renderSceneJpeg(
   ctx.fillRect(0, 0, width, height);
 
   if (!map) {
-    if (input.status) {
-      drawHeader(ctx, input.status, palette, width, unit, null, compact);
-    }
     ctx.textAlign = "center";
     ctx.textBaseline = "middle";
     ctx.fillStyle = rgba(palette.subtitle);
     ctx.font = `500 ${Math.max(13, unit * (compact ? 4.6 : 3.4))}px "${FONT_FAMILY}"`;
-    ctx.fillText("扫地机下次清扫后显示地图", width / 2, height * 0.56);
+    ctx.fillText("扫地机下次清扫后显示地图", width / 2, height / 2);
     return canvas.toBuffer("image/jpeg", quality);
   }
   const geometry = geometryOf(map);
 
-  // Turn the plan as the app does, then fit it. The header only claims a
-  // band of its own when the plan would otherwise run under it.
+  // Turn the plan as the app does, then fit it to the whole frame: the
+  // picture carries no header — where things are is the whole message.
   const rotation = input.rotation ?? 0;
   const [ca, sa] =
     rotation === 90
@@ -605,38 +644,20 @@ export function renderSceneJpeg(
   const maxRY = Math.max(...corners.map((c) => c[1]));
   const spanX = maxRX - minRX;
   const spanY = maxRY - minRY;
-  const padding = unit * 5;
-  const layout = (headerBand: number) => {
-    const availableW = width - padding * 2;
-    const availableH = height - padding * 2 - headerBand;
-    const fit = Math.max(
-      Math.min(availableW / spanX, availableH / spanY),
-      0.05
-    );
-    return {
-      scale: fit,
-      offsetX: (width - spanX * fit) / 2 - minRX * fit,
-      offsetY:
-        headerBand + padding + (availableH - spanY * fit) / 2 - minRY * fit,
-    };
-  };
-  let { scale, offsetX, offsetY } = layout(0);
-  if (input.status) {
-    const left = offsetX + minRX * scale;
-    const top = offsetY + minRY * scale;
-    const headerRight = width * (compact ? 0.5 : 0.32);
-    const headerBottom = unit * (compact ? 15 : 13);
-    if (left < headerRight && top < headerBottom) {
-      ({ scale, offsetX, offsetY } = layout(headerBottom));
-    }
-  }
+  const padding = unit * 4;
+  const scale = Math.max(
+    Math.min((width - padding * 2) / spanX, (height - padding * 2) / spanY),
+    0.05
+  );
+  const offsetX = (width - spanX * scale) / 2 - minRX * scale;
+  const offsetY = (height - spanY * scale) / 2 - minRY * scale;
 
   const project = (gx: number, gy: number): [number, number] => {
     const [rx, ry] = turn(gx, gy);
     return [offsetX + rx * scale, offsetY + ry * scale];
   };
-  const onPlan = () =>
-    ctx.setTransform(
+  const planTransform = (target: any) =>
+    target.setTransform(
       ca * scale,
       sa * scale,
       -sa * scale,
@@ -644,40 +665,91 @@ export function renderSceneJpeg(
       offsetX,
       offsetY
     );
+  const onPlan = () => planTransform(ctx);
   const flat = () => ctx.setTransform(1, 0, 0, 1, 0, 0);
   const px = (screen: number) => screen / scale;
 
-  // Floor, then rooms in their colours with their floor texture.
+  // Everywhere the robot has not been: each room's colour, thinned and
+  // hatched — present, but plainly not done.
   onPlan();
   ctx.fillStyle = rgba(palette.floor);
   tracePath(ctx, geometry.floor);
   ctx.fill("nonzero");
+  const covered = map.path.length > 1;
   for (const room of geometry.rooms) {
     const colour = palette.rooms[room.color];
-    ctx.fillStyle = rgba(colour.fill);
-    tracePath(ctx, room.loops);
-    ctx.fill("nonzero");
-    drawFloorTexture(ctx, map, room, colour.ink, palette.textureAlpha, px);
+    if (covered) {
+      ctx.fillStyle = rgba(colour.fill, palette.uncleanedAlpha);
+      tracePath(ctx, room.loops);
+      ctx.fill("nonzero");
+      drawHatch(ctx, room.loops, colour.ink, 0.16, px);
+    } else {
+      paintRoom(ctx, map, room, colour, palette, px);
+    }
   }
-  drawCarpet(ctx, geometry, palette, px);
+
+  // Where it has been: the same rooms in full, with their floor texture and
+  // rugs, masked to the path widened to the robot's own 35 cm — so the
+  // covered area stands out and the gaps it left are visible as gaps.
+  if (covered) {
+    const solid = library.createCanvas(width, height);
+    const sctx = solid.getContext("2d");
+    planTransform(sctx);
+    for (const room of geometry.rooms) {
+      paintRoom(sctx, map, room, palette.rooms[room.color], palette, px);
+    }
+    drawCarpet(sctx, geometry, palette, px);
+
+    const mask = library.createCanvas(width, height);
+    const mctx = mask.getContext("2d");
+    planTransform(mctx);
+    mctx.strokeStyle = "rgba(255,255,255,1)";
+    mctx.lineWidth = 7;
+    mctx.lineCap = "round";
+    mctx.lineJoin = "round";
+    mctx.beginPath();
+    map.path.forEach(([x, y], i) => {
+      const [gx, gy] = toGrid(map, x, y);
+      if (i === 0) mctx.moveTo(gx, gy);
+      else mctx.lineTo(gx, gy);
+    });
+    mctx.stroke();
+
+    sctx.setTransform(1, 0, 0, 1, 0, 0);
+    sctx.globalCompositeOperation = "destination-in";
+    sctx.drawImage(mask, 0, 0);
+    flat();
+    ctx.drawImage(solid, 0, 0);
+    onPlan();
+  } else {
+    drawCarpet(ctx, geometry, palette, px);
+  }
+
+  // The path's centre line, kept faint: the area it swept is the message.
+  drawPath(ctx, map, palette, px);
+
+  // Obstacles the robot found inside a room, lighter than any wall.
   for (const room of geometry.rooms) {
     const loops = geometry.clutter.get(room.id);
     if (!loops) continue;
-    ctx.fillStyle = rgba(palette.rooms[room.color].ink, 0.42);
+    ctx.fillStyle = rgba(palette.rooms[room.color].ink, 0.32);
     tracePath(ctx, loops);
     ctx.fill("nonzero");
   }
   drawFurniture(ctx, map, geometry, palette, px);
-
-  // The cleaned area: the path widened to the robot's width and washed white,
-  // with the path itself as a fine white line on top.
-  drawPath(ctx, map, palette, px);
   drawZones(ctx, map, px);
 
-  // Walls on top of everything on the floor.
-  ctx.fillStyle = rgba(palette.wall);
-  tracePath(ctx, geometry.walls);
+  // Walls: between rooms solid, the outline of the home strongest of all.
+  ctx.fillStyle = rgba(palette.innerWall);
+  tracePath(ctx, geometry.innerWalls);
   ctx.fill("nonzero");
+  ctx.fillStyle = rgba(palette.outerWall);
+  ctx.strokeStyle = rgba(palette.outerWall);
+  ctx.lineWidth = px(1.6);
+  ctx.lineJoin = "round";
+  tracePath(ctx, geometry.outerWalls);
+  ctx.fill("nonzero");
+  ctx.stroke();
 
   if (input.status?.active && map.cleanedRooms.length > 0) {
     drawRunScope(ctx, geometry, map.cleanedRooms, palette, px);
@@ -709,19 +781,52 @@ export function renderSceneJpeg(
     compact,
     input.furnitureNames
   );
-  if (input.status) {
-    drawHeader(
-      ctx,
-      input.status,
-      palette,
-      width,
-      unit,
-      input.updatedAt ?? null,
-      compact
-    );
-  }
 
   return canvas.toBuffer("image/jpeg", quality);
+}
+
+/** One room at full strength: its colour and its floor texture. */
+function paintRoom(
+  ctx: any,
+  map: ClassicMap,
+  room: RoomGeometry,
+  colour: { fill: Rgb; ink: Rgb },
+  palette: Palette,
+  px: (screen: number) => number
+): void {
+  ctx.fillStyle = rgba(colour.fill);
+  tracePath(ctx, room.loops);
+  ctx.fill("nonzero");
+  drawFloorTexture(ctx, map, room, colour.ink, palette.textureAlpha, px);
+}
+
+/** Fine diagonal hatching inside some loops: the "not yet" texture. */
+function drawHatch(
+  ctx: any,
+  loops: Loop[],
+  ink: Rgb,
+  alpha: number,
+  px: (screen: number) => number
+): void {
+  const xs = loops.flatMap((loop) => loop.map((p) => p[0]));
+  const ys = loops.flatMap((loop) => loop.map((p) => p[1]));
+  const x0 = Math.min(...xs);
+  const x1 = Math.max(...xs);
+  const y0 = Math.min(...ys);
+  const y1 = Math.max(...ys);
+  const span = y1 - y0;
+  ctx.save();
+  tracePath(ctx, loops);
+  ctx.clip("nonzero");
+  ctx.strokeStyle = rgba(ink, alpha);
+  ctx.lineWidth = px(1);
+  ctx.beginPath();
+  for (let k = x0 - span; k < x1; k += 3) {
+    ctx.moveTo(k, y1);
+    ctx.lineTo(k + span, y0);
+  }
+  ctx.stroke();
+  ctx.restore();
 }
 
 /** Wood planks along the room's direction, or a tile grid, inside the room. */
@@ -945,23 +1050,17 @@ function drawPath(
   px: (screen: number) => number
 ): void {
   if (map.path.length < 2) return;
-  const points = map.path.map(([x, y]) => toGrid(map, x, y));
-  const line = () => {
-    ctx.beginPath();
-    points.forEach(([x, y], i) => (i ? ctx.lineTo(x, y) : ctx.moveTo(x, y)));
-  };
   ctx.save();
   ctx.lineJoin = "round";
   ctx.lineCap = "round";
-  // The cleaned area, 35 cm wide — the robot's own width. One stroke of one
-  // path, so overlapping passes do not stack up to opaque white.
-  ctx.strokeStyle = `rgba(255,255,255,${palette.cleanedAlpha})`;
-  ctx.lineWidth = 7;
-  line();
-  ctx.stroke();
   ctx.strokeStyle = `rgba(255,255,255,${palette.pathAlpha})`;
-  ctx.lineWidth = px(1.1);
-  line();
+  ctx.lineWidth = px(0.9);
+  ctx.beginPath();
+  map.path.forEach(([x, y], i) => {
+    const [gx, gy] = toGrid(map, x, y);
+    if (i === 0) ctx.moveTo(gx, gy);
+    else ctx.lineTo(gx, gy);
+  });
   ctx.stroke();
   ctx.restore();
 }
@@ -1424,68 +1523,6 @@ function drawFurnitureLabels(
     ctx.textBaseline = "middle";
     ctx.fillStyle = rgba(ink, 0.75);
     ctx.fillText(name, x, y);
-  }
-}
-
-/** The app's header: the robot's name, then battery and state. */
-function drawHeader(
-  ctx: any,
-  status: SceneStatus,
-  palette: Palette,
-  width: number,
-  unit: number,
-  updatedAt: Date | null,
-  compact: boolean
-): void {
-  const size = compact ? Math.max(14, unit * 5.2) : Math.max(14, unit * 4.4);
-  const x = unit * 4.5;
-  const top = unit * 4;
-
-  ctx.textAlign = "left";
-  ctx.textBaseline = "alphabetic";
-  ctx.fillStyle = rgba(palette.title);
-  ctx.font = `700 ${size}px "${FONT_FAMILY}"`;
-  ctx.fillText(status.title, x, top + size * 0.95);
-
-  const line = top + size * 2.05;
-  const small = size * 0.6;
-  let cursor = x;
-  if (typeof status.battery === "number") {
-    if (status.charging) {
-      const b = small * 0.62;
-      ctx.fillStyle = "rgba(95,197,101,1)";
-      ctx.beginPath();
-      ctx.moveTo(cursor + b * 0.6, line - small * 0.95);
-      ctx.lineTo(cursor, line - small * 0.25);
-      ctx.lineTo(cursor + b * 0.5, line - small * 0.25);
-      ctx.lineTo(cursor + b * 0.3, line + small * 0.18);
-      ctx.lineTo(cursor + b * 1.0, line - small * 0.5);
-      ctx.lineTo(cursor + b * 0.5, line - small * 0.5);
-      ctx.closePath();
-      ctx.fill();
-      cursor += b * 1.5;
-    }
-    ctx.fillStyle = rgba(palette.subtitle);
-    ctx.font = `500 ${small}px "${FONT_FAMILY}"`;
-    const battery = `${Math.round(status.battery)}%`;
-    ctx.fillText(battery, cursor, line);
-    cursor += ctx.measureText(battery).width + small * 1.4;
-  }
-  ctx.fillStyle = rgba(palette.subtitle);
-  ctx.font = `500 ${small}px "${FONT_FAMILY}"`;
-  const state = status.detail
-    ? `${status.state} · ${status.detail}`
-    : status.state;
-  ctx.fillText(state, cursor, line);
-
-  if (!compact && updatedAt) {
-    const clock = `${String(updatedAt.getHours()).padStart(2, "0")}:${String(
-      updatedAt.getMinutes()
-    ).padStart(2, "0")}`;
-    ctx.textAlign = "right";
-    ctx.fillStyle = rgba(palette.subtitle);
-    ctx.font = `500 ${small * 0.9}px "${FONT_FAMILY}"`;
-    ctx.fillText(`更新于 ${clock}`, width - x, top + size * 0.95);
   }
 }
 

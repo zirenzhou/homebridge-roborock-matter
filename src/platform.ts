@@ -1573,6 +1573,11 @@ export default class RoborockPlatform implements DynamicPlatformPlugin {
     const camera = new RoborockMapCameraAccessory(this, accessory, duid, {
       storagePath: this.api.user.storagePath(),
       ffmpegPath: resolveFfmpegPath(this.platformConfig.ffmpegPath),
+      requestMap: () => {
+        void this.roborockAPI
+          .fetchMapForCamera?.(duid)
+          ?.catch?.(() => undefined);
+      },
     });
     this.mapCameras.set(duid, camera);
 

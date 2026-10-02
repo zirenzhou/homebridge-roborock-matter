@@ -152,6 +152,14 @@ const MAX_STREAM_FPS = 15;
 const RTCP_SILENCE_TIMEOUT_MS = 30_000;
 /** At most one persisted map per minute while a clean is in progress. */
 const PERSIST_INTERVAL_MS = 60_000;
+/** While someone watches live, ask for a fresh map this often. */
+const LIVE_REFRESH_MS = 15_000;
+/**
+ * The Home app asks for snapshots every few seconds while a camera tile is
+ * on screen; a robot sitting in its dock is not asked for a new map more
+ * often than this because of it.
+ */
+const TILE_REFRESH_MS = 60_000;
 
 export type StreamSession = {
   address: string;
@@ -263,12 +271,19 @@ export default class RoborockMapCameraAccessory
   private cleaning: boolean | null = null;
   private ffmpegMissingLogged = false;
   private furnitureLogged = "";
+  private lastMapRequestAt = 0;
+  private liveRefreshTimer: ReturnType<typeof setInterval> | null = null;
 
   constructor(
     private readonly platform: RoborockPlatform,
     public readonly accessory: PlatformAccessory,
     private readonly duid: string,
-    private readonly options: { storagePath: string; ffmpegPath: string }
+    private readonly options: {
+      storagePath: string;
+      ffmpegPath: string;
+      /** Ask the robot for a fresh map; throttled and single-flight there. */
+      requestMap?: () => void;
+    }
   ) {
     this.configureAccessory();
     this.loadPersistedMap();
@@ -445,10 +460,30 @@ export default class RoborockMapCameraAccessory
     }
   }
 
+  /** Ask for a fresh map unless one arrived or was asked for recently. */
+  private requestFreshMap(minimumAgeMs: number): void {
+    const now = Date.now();
+    if (
+      now - this.mapReceivedAt < minimumAgeMs ||
+      now - this.lastMapRequestAt < minimumAgeMs
+    ) {
+      return;
+    }
+    this.lastMapRequestAt = now;
+    try {
+      this.options.requestMap?.();
+    } catch {
+      // A failed request leaves the last map up; the next one tries again.
+    }
+  }
+
   handleSnapshotRequest(
     request: SnapshotRequest,
     callback: SnapshotRequestCallback
   ): void {
+    // The tile is on screen: keep it reasonably current, even with the
+    // robot docked. The answer is drawn from the map in hand right now.
+    this.requestFreshMap(TILE_REFRESH_MS);
     try {
       callback(undefined, this.snapshot(request.width, request.height));
     } catch (error) {
@@ -580,6 +615,17 @@ export default class RoborockMapCameraAccessory
     sendFrame();
     session.frameTimer = setInterval(sendFrame, FRAME_INTERVAL_MS);
 
+    // Live view follows the robot: a fresh map every 15 s while anyone
+    // watches. Each frame is drawn from the newest map, so the picture moves
+    // on as soon as one arrives.
+    this.requestFreshMap(0);
+    if (!this.liveRefreshTimer) {
+      this.liveRefreshTimer = setInterval(
+        () => this.requestFreshMap(LIVE_REFRESH_MS),
+        LIVE_REFRESH_MS
+      );
+    }
+
     session.returnSocket.on("message", () => {
       session.lastRtcpAt = Date.now();
     });
@@ -601,6 +647,10 @@ export default class RoborockMapCameraAccessory
     this.sessions.delete(sessionID);
     if (session.frameTimer) clearInterval(session.frameTimer);
     if (session.watchdog) clearInterval(session.watchdog);
+    if (this.sessions.size === 0 && this.liveRefreshTimer) {
+      clearInterval(this.liveRefreshTimer);
+      this.liveRefreshTimer = null;
+    }
     try {
       session.process?.stdin?.end();
       session.process?.kill("SIGKILL");
