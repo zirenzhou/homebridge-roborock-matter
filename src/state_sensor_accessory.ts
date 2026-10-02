@@ -1,4 +1,5 @@
 import { PlatformAccessory } from "homebridge";
+import { applyServiceName } from "./naming";
 
 import RoborockPlatform from "./platform";
 import { HomeKitStateSensorKey } from "./types";
@@ -188,7 +189,7 @@ export default class RoborockStateSensorAccessory {
       this.accessory.getService(Service.ContactSensor) ||
       this.accessory.addService(Service.ContactSensor, name);
 
-    service.setCharacteristic(Characteristic.Name, name);
+    applyServiceName(this.accessory, service, Characteristic, name);
 
     const contact = service.getCharacteristic(
       Characteristic.ContactSensorState
@@ -205,16 +206,13 @@ export default class RoborockStateSensorAccessory {
   }
 
   /** Follow a rename in the Roborock app through to Apple Home. */
-  updateIdentity(vacuumName: string): void {
-    const name = `${vacuumName} ${this.definition.nameSuffix}`;
-    if (this.accessory.displayName === name) {
-      return;
-    }
-
-    this.accessory.displayName = name;
-    this.accessory
-      .getService(this.platform.Service.ContactSensor)
-      ?.updateCharacteristic(this.platform.Characteristic.Name, name);
+  updateIdentity(_vacuumName: string): void {
+    applyServiceName(
+      this.accessory,
+      this.accessory.getService(this.platform.Service.ContactSensor),
+      this.platform.Characteristic,
+      this.definition.nameSuffix
+    );
   }
 
   /**

@@ -238,12 +238,12 @@ function makeCloud({
 
 function makeCoordinator(cloud, { routines = false } = {}) {
   const platform = makePlatform(cloud);
-  const manager = new FakeAccessory("Rocky Schedules");
+  const manager = new FakeAccessory("Schedules");
   const coordinator = new RoborockHapScheduleAccessory(platform, manager, DUID);
   let routineAccessory;
   const routineCounts = [];
   if (routines) {
-    routineAccessory = new FakeAccessory("Rocky Routines");
+    routineAccessory = new FakeAccessory("Routines");
     coordinator.vacuumName = "Rocky";
     coordinator.attachRoutineAccessory(routineAccessory, (count) =>
       routineCounts.push(count)
@@ -610,7 +610,7 @@ describe("the Routines accessory", () => {
       duid: DUID,
     });
     expect(isHapRoutineAccessory(routineAccessory)).toBe(true);
-    expect(routineAccessory.displayName).toBe("Rocky Routines");
+    expect(routineAccessory.displayName).toBe("Routines");
     expect(
       routineAccessory.services
         .filter((s) => s.UUID === "switch-uuid")
@@ -685,8 +685,8 @@ describe("the Routines accessory", () => {
   test("switches restored from the cache work before the first reading and follow a rename after it", async () => {
     const cloud = makeCloud({ scenes: [scene({ id: 1, name: "Saugen++" })] });
     const platform = makePlatform(cloud);
-    const manager = new FakeAccessory("Rocky Schedules");
-    const cached = new FakeAccessory("Rocky Routines");
+    const manager = new FakeAccessory("Schedules");
+    const cached = new FakeAccessory("Routines");
     // What Homebridge hands back from its cache: the service, no handlers.
     cached.addService(Service.Switch, "Saugen+", "roborock-routine-1");
 

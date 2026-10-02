@@ -148,7 +148,7 @@ describe("the action switches are off until they are asked for", () => {
 
     platform.syncActionSwitches(DEVICES);
 
-    expect(platform.registered).toEqual(["Robot device-1 Return to Dock"]);
+    expect(platform.registered).toEqual(["Return to Dock"]);
   });
 
   test("a saved list is published exactly, and unknown keys are ignored", () => {
@@ -161,10 +161,7 @@ describe("the action switches are off until they are asked for", () => {
 
     platform.syncActionSwitches(DEVICES);
 
-    expect(platform.registered.sort()).toEqual([
-      "Robot device-1 Find",
-      "Robot device-1 Pause",
-    ]);
+    expect(platform.registered.sort()).toEqual(["Find", "Pause"]);
   });
 
   test("an action the robot cannot perform is never published", () => {
@@ -187,7 +184,7 @@ describe("the action switches are off until they are asked for", () => {
     platform.syncActionSwitches(DEVICES);
 
     // A switch that silently does nothing is worse than no switch.
-    expect(platform.registered).toEqual(["Robot device-1 Return to Dock"]);
+    expect(platform.registered).toEqual(["Return to Dock"]);
     expect(platform.log.debug).toHaveBeenCalledWith(
       expect.stringContaining("does not support that command")
     );
@@ -212,15 +209,15 @@ describe("the action switches are off until they are asked for", () => {
 
     platform.syncActionSwitches(DEVICES);
 
-    expect(platform.registered).toEqual(["Robot device-1 Empty Bin"]);
+    expect(platform.registered).toEqual(["Empty Bin"]);
 
     platform.platformConfig.homeKitActionSwitches = ["empty", "dock"];
     platform.matterVacuums.get("device-1").supportsHomeKitAction = (action) =>
       action !== "empty";
     platform.syncActionSwitches(DEVICES, "device-1");
 
-    expect(platform.unregistered).toContain("Robot device-1 Empty Bin");
-    expect(platform.registered).toContain("Robot device-1 Return to Dock");
+    expect(platform.unregistered).toContain("Empty Bin");
+    expect(platform.registered).toContain("Return to Dock");
   });
 
   test("a cached S7 Empty Bin switch survives until live dock discovery", () => {
@@ -285,8 +282,8 @@ describe("the action switches are off until they are asked for", () => {
     platform.syncActionSwitches([{ duid: "device-1" }, { duid: "device-2" }]);
 
     expect(platform.registered.sort()).toEqual([
-      "Robot device-1 Return to Dock",
-      "Robot device-2 Return to Dock",
+      "Return to Dock",
+      "Return to Dock",
     ]);
   });
 
@@ -320,7 +317,7 @@ describe("removing an action switch takes the config's word, not the cloud's", (
     platform.platformConfig.enableHomeKitActionSwitches = false;
     platform.syncActionSwitches(DEVICES);
 
-    expect(platform.unregistered).toEqual(["Robot device-1 Return to Dock"]);
+    expect(platform.unregistered).toEqual(["Return to Dock"]);
     expect(platform.accessories).toHaveLength(0);
     expect(platform.actionSwitches.size).toBe(0);
   });
@@ -334,9 +331,9 @@ describe("removing an action switch takes the config's word, not the cloud's", (
     platform.platformConfig.homeKitActionSwitches = ["dock"];
     platform.syncActionSwitches(DEVICES);
 
-    expect(platform.unregistered).toEqual(["Robot device-1 Pause"]);
+    expect(platform.unregistered).toEqual(["Pause"]);
     expect(platform.accessories.map((entry) => entry.displayName)).toEqual([
-      "Robot device-1 Return to Dock",
+      "Return to Dock",
     ]);
   });
 
@@ -361,8 +358,8 @@ describe("removing an action switch takes the config's word, not the cloud's", (
     // The account still answers, and it no longer lists device-1.
     platform.syncActionSwitches([{ duid: "device-2" }]);
 
-    expect(platform.unregistered).toEqual(["Robot device-1 Return to Dock"]);
-    expect(platform.registered).toEqual(["Robot device-2 Return to Dock"]);
+    expect(platform.unregistered).toEqual(["Return to Dock"]);
+    expect(platform.registered).toEqual(["Return to Dock"]);
   });
 
   test("turning the feature off works even while the cloud is down", () => {
@@ -376,7 +373,7 @@ describe("removing an action switch takes the config's word, not the cloud's", (
     platform.platformConfig.enableHomeKitActionSwitches = false;
     platform.syncActionSwitches([]);
 
-    expect(platform.unregistered).toEqual(["Robot device-1 Return to Dock"]);
+    expect(platform.unregistered).toEqual(["Return to Dock"]);
   });
 });
 
@@ -454,7 +451,9 @@ describe("the accessory that reaches the Homebridge cache", () => {
     }
   });
 
-  test("follows the robot when it is renamed in the Roborock app", () => {
+  // The name says what the switch does, not which robot it belongs to
+  // (naming.ts), so renaming the robot leaves it alone.
+  test("keeps its name when the robot is renamed in the Roborock app", () => {
     const platform = createPlatform({
       config: { enableHomeKitActionSwitches: true },
     });
@@ -464,7 +463,7 @@ describe("the accessory that reaches the Homebridge cache", () => {
       property === "name" ? "Hoover" : `sn-${duid}`;
     platform.syncActionSwitches(DEVICES);
 
-    expect(platform.accessories[0].displayName).toBe("Hoover Return to Dock");
+    expect(platform.accessories[0].displayName).toBe("Return to Dock");
     expect(platform.api.registerPlatformAccessories).toHaveBeenCalledTimes(1);
   });
 });

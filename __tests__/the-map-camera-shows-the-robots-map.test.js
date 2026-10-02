@@ -102,7 +102,7 @@ function tempStorage() {
 
 function makeCamera(storagePath = tempStorage()) {
   const platform = fakePlatform();
-  const accessory = fakeAccessory("Rocky Map");
+  const accessory = fakeAccessory("Map");
   const camera = new RoborockMapCameraAccessory(platform, accessory, "duid-1", {
     storagePath,
     ffmpegPath: "ffmpeg",
@@ -310,7 +310,7 @@ describe("the platform", () => {
     const uuid = `uuid:${mapCameraUuidSeed("duid-1")}`;
     expect(platform.registered).toEqual([uuid]);
     const accessory = platform.accessories.find((a) => a.UUID === uuid);
-    expect(accessory.displayName).toBe("Rocky Map");
+    expect(accessory.displayName).toBe("Map");
     expect(accessory.context).toEqual({
       kind: MAP_CAMERA_KIND,
       duid: "duid-1",
@@ -328,7 +328,7 @@ describe("the platform", () => {
   });
 
   test("turning the setting off removes the camera", () => {
-    const cached = fakeAccessory("Rocky Map", "uuid:cam");
+    const cached = fakeAccessory("Map", "uuid:cam");
     cached.context = { kind: MAP_CAMERA_KIND, duid: "duid-1" };
     const platform = createPlatform({ enabled: false, cached: [cached] });
 
@@ -339,7 +339,7 @@ describe("the platform", () => {
   });
 
   test("the Matter-only sweep leaves a cached camera alone", () => {
-    const cached = fakeAccessory("Rocky Map", "uuid:cam");
+    const cached = fakeAccessory("Map", "uuid:cam");
     cached.context = { kind: MAP_CAMERA_KIND, duid: "duid-1" };
     const legacy = { UUID: "uuid:legacy", displayName: "Rocky", context: {} };
     const platform = createPlatform({ cached: [cached, legacy] });
@@ -511,7 +511,7 @@ describe("keeping the picture current", () => {
       const requestMap = jest.fn();
       const camera = new RoborockMapCameraAccessory(
         fakePlatform(),
-        fakeAccessory("Rocky Map"),
+        fakeAccessory("Map"),
         "duid-1",
         { storagePath: tempStorage(), ffmpegPath: "ffmpeg", requestMap }
       );

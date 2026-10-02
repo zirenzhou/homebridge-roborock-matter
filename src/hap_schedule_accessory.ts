@@ -559,7 +559,8 @@ export default class RoborockHapScheduleAccessory {
     this.vacuumName = vacuumName;
     this.disposed = false;
 
-    const displayName = `${vacuumName} Schedules`;
+    // What it holds, not which robot: see naming.ts.
+    const displayName = "Schedules";
     this.managerAccessory.displayName = displayName;
 
     this.managerAccessory.context = {
@@ -657,9 +658,8 @@ export default class RoborockHapScheduleAccessory {
       duid: this.duid,
     } satisfies HapRoutineContext;
 
-    const displayName = this.vacuumName
-      ? `${this.vacuumName} Routines`
-      : accessory.displayName || "Roborock Routines";
+    // What it holds, not which robot: see naming.ts.
+    const displayName = "Routines";
     accessory.displayName = displayName;
 
     const info =

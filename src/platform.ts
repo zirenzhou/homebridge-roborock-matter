@@ -823,10 +823,7 @@ export default class RoborockPlatform implements DynamicPlatformPlugin {
       (cached) => cached.UUID === uuid && isHapRoutineAccessory(cached)
     );
     if (!accessory) {
-      accessory = new this.api.platformAccessory(
-        `${vacuumName} Routines`,
-        uuid
-      );
+      accessory = new this.api.platformAccessory("Routines", uuid);
     }
     const routineAccessory = accessory;
 
@@ -1553,7 +1550,8 @@ export default class RoborockPlatform implements DynamicPlatformPlugin {
   }
 
   private addMapCamera(duid: string, vacuumName: string): void {
-    const name = `${vacuumName} Map`;
+    // What it shows, not which robot: see naming.ts.
+    const name = "Map";
     const uuid = this.api.hap.uuid.generate(mapCameraUuidSeed(duid));
     const context: MapCameraContext = { kind: MAP_CAMERA_KIND, duid };
 
@@ -1750,7 +1748,8 @@ export default class RoborockPlatform implements DynamicPlatformPlugin {
       return;
     }
 
-    const name = `${vacuumName} ${definition.nameSuffix}`;
+    // What it shows, not which robot: see naming.ts.
+    const name = definition.nameSuffix;
 
     const uuid = this.api.hap.uuid.generate(stateSensorUuidSeed(duid, sensor));
     const context: StateSensorContext = {
@@ -1949,7 +1948,8 @@ export default class RoborockPlatform implements DynamicPlatformPlugin {
       return;
     }
 
-    const name = `${vacuumName} ${definition.nameSuffix}`;
+    // What it does, not which robot: see naming.ts.
+    const name = definition.nameSuffix;
 
     const uuid = this.api.hap.uuid.generate(actionSwitchUuidSeed(duid, action));
     const context: ActionSwitchContext = {
@@ -1967,7 +1967,11 @@ export default class RoborockPlatform implements DynamicPlatformPlugin {
     }
 
     accessory.displayName = name;
-    accessory.context = context;
+    // Keep the names last written to Apple Home (naming.ts).
+    accessory.context = {
+      ...context,
+      serviceNames: accessory.context?.serviceNames,
+    };
 
     const actionSwitch = new RoborockActionSwitchAccessory(
       this,

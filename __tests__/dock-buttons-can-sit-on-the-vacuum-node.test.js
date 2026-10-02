@@ -76,9 +76,9 @@ test("no buttons unless asked for", () => {
 test("each chosen command becomes an on/off endpoint on the vacuum", () => {
   const { accessory } = harness(["dry", "empty", "wash", "bogus"]);
   expect(accessory.parts.map((part) => [part.id, part.displayName])).toEqual([
-    ["button-empty", "Vicky Empty Bin"],
-    ["button-wash", "Vicky Wash Mop"],
-    ["button-dry", "Vicky Dry Mop"],
+    ["button-empty", "Empty Bin"],
+    ["button-wash", "Wash Mop"],
+    ["button-dry", "Dry Mop"],
   ]);
   for (const part of accessory.parts) {
     expect(part.deviceType).toBe("outlet-type");
@@ -147,5 +147,43 @@ describe("dust pending", () => {
     vacuum.accessory.context.dustPending = true;
     await vacuum.runHomeKitAction("empty");
     expect(vacuum.getHomeKitStateSensorValue("dustPending")).toBe(false);
+  });
+});
+
+describe("names Apple Home is given", () => {
+  const { applyServiceName } = require("../src/naming");
+
+  function fakeService() {
+    const values = new Map();
+    const optional = new Set();
+    return {
+      UUID: "contact",
+      values,
+      setCharacteristic(characteristic, value) {
+        values.set(characteristic, value);
+        return this;
+      },
+      testCharacteristic: (characteristic) => optional.has(characteristic),
+      addOptionalCharacteristic: (characteristic) =>
+        optional.add(characteristic),
+    };
+  }
+  const Characteristic = { Name: "Name", ConfiguredName: "ConfiguredName" };
+
+  test("say what the accessory shows, once, and leave a name picked in the Home app alone", () => {
+    const accessory = {
+      displayName: "P20 Ultra Plus Dust Pending",
+      context: {},
+    };
+    const service = fakeService();
+
+    applyServiceName(accessory, service, Characteristic, "Dust Pending");
+    expect(accessory.displayName).toBe("Dust Pending");
+    expect(service.values.get("ConfiguredName")).toBe("Dust Pending");
+
+    // The owner renames it in the Home app; the next start must not undo that.
+    service.values.set("ConfiguredName", "待集尘");
+    applyServiceName(accessory, service, Characteristic, "Dust Pending");
+    expect(service.values.get("ConfiguredName")).toBe("待集尘");
   });
 });

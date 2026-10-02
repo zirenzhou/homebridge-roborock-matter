@@ -348,8 +348,8 @@ export default class RoborockMapCameraAccessory
   }
 
   /** Follow a rename in the Roborock app through to Apple Home. */
-  updateIdentity(vacuumName: string): void {
-    this.accessory.displayName = `${vacuumName} Map`;
+  updateIdentity(_vacuumName: string): void {
+    this.accessory.displayName = "Map";
   }
 
   /** A new map from the robot. Anything that is not a classic map is ignored. */

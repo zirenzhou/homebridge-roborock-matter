@@ -101,7 +101,7 @@ describe("routine accessory registration", () => {
     const [coordinator] = __instances;
     expect(coordinator.attachRoutineAccessory).toHaveBeenCalledTimes(1);
     const accessory = coordinator.routineAccessory;
-    expect(accessory.displayName).toBe("Rocky Routines");
+    expect(accessory.displayName).toBe("Routines");
     expect(accessory.UUID).toBe("uuid:hap:roborock:routines:device-1");
     expect(platform.api.registerPlatformAccessories).not.toHaveBeenCalled();
 
@@ -129,7 +129,7 @@ describe("routine accessory registration", () => {
   test("a cached accessory is handed back to the coordinator rather than replaced", async () => {
     const cached = {
       UUID: "uuid:hap:roborock:routines:device-1",
-      displayName: "Rocky Routines",
+      displayName: "Routines",
       context: {
         kind: "hapExtension",
         extension: "routines",
@@ -152,7 +152,7 @@ describe("routine accessory registration", () => {
   test("with the setting off, cached routine accessories are unregistered and none is attached", async () => {
     const cached = {
       UUID: "uuid:hap:roborock:routines:device-1",
-      displayName: "Rocky Routines",
+      displayName: "Routines",
       context: {
         kind: "hapExtension",
         extension: "routines",

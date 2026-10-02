@@ -2361,7 +2361,8 @@ export default class RoborockMatterVacuumAccessory {
     }
     return keys.map((key) => ({
       id: `button-${key}`,
-      displayName: `${this.getVacuumName()} ${MATTER_BUTTON_NAMES[key]}`,
+      // What the button does, not which robot: it sits on the robot already.
+      displayName: MATTER_BUTTON_NAMES[key],
       deviceType,
       clusters: { onOff: { onOff: false } },
       handlers: {

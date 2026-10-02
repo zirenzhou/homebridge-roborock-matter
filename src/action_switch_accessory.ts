@@ -1,4 +1,5 @@
 import { CharacteristicValue, PlatformAccessory } from "homebridge";
+import { applyServiceName } from "./naming";
 import { setTimeout as nodeSetTimeout } from "node:timers";
 
 import RoborockPlatform from "./platform";
@@ -173,7 +174,7 @@ export default class RoborockActionSwitchAccessory {
       this.accessory.getService(Service.Switch) ||
       this.accessory.addService(Service.Switch, name);
 
-    service.setCharacteristic(Characteristic.Name, name);
+    applyServiceName(this.accessory, service, Characteristic, name);
 
     const on = service.getCharacteristic(Characteristic.On);
     // Cached accessories are configured again on every launch, and a second
@@ -189,16 +190,13 @@ export default class RoborockActionSwitchAccessory {
   }
 
   /** Follow a rename in the Roborock app through to Apple Home. */
-  updateIdentity(vacuumName: string): void {
-    const name = `${vacuumName} ${this.definition.nameSuffix}`;
-    if (this.accessory.displayName === name) {
-      return;
-    }
-
-    this.accessory.displayName = name;
-    this.accessory
-      .getService(this.platform.Service.Switch)
-      ?.updateCharacteristic(this.platform.Characteristic.Name, name);
+  updateIdentity(_vacuumName: string): void {
+    applyServiceName(
+      this.accessory,
+      this.accessory.getService(this.platform.Service.Switch),
+      this.platform.Characteristic,
+      this.definition.nameSuffix
+    );
   }
 
   dispose(): void {
