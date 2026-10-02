@@ -15,6 +15,8 @@ export const HOMEKIT_ACTION_KEYS = [
   "clean",
   "dock",
   "empty",
+  "wash",
+  "dry",
   "pause",
   "locate",
 ] as const;
@@ -88,4 +90,6 @@ export interface RoborockPlatformConfig extends PlatformConfig {
   homeKitStateSensors?: string[];
   enableHomeKitScheduleSwitches?: boolean;
   enableHomeKitRoutineSwitches?: boolean;
+  /** Buttons on the vacuum's own Matter node (re-pair after changing). */
+  matterDockButtons?: string[];
 }

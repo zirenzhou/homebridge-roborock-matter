@@ -604,6 +604,7 @@ export default class RoborockPlatform implements DynamicPlatformPlugin {
       // After both syncs, so the count is the total a user has to find in
       // Apple Home rather than one kind's share of it.
       this.logHapPairingHint();
+      this.probeDockSettingsOnce(knownDevices);
 
       await this.unregisterStaleMatterAccessories();
     } catch (error) {
@@ -1289,7 +1290,7 @@ export default class RoborockPlatform implements DynamicPlatformPlugin {
         const key = `${duid}:${action}`;
         if (vacuum && !vacuum.supportsHomeKitAction(action)) {
           const preservePendingEmptyBin =
-            action === "empty" &&
+            (action === "empty" || action === "wash" || action === "dry") &&
             capabilityConfirmedForDuid !== duid &&
             cachedKeys.has(key);
 
@@ -1584,6 +1585,28 @@ export default class RoborockPlatform implements DynamicPlatformPlugin {
         PLATFORM_NAME,
         [accessory]
       );
+    }
+  }
+
+  private dockSettingsProbed = new Set<string>();
+
+  /**
+   * Log each washing dock's settings once per run, read-only, so their shapes
+   * are known before the plugin offers to change them. Delayed so it does
+   * not compete with the first status polls.
+   */
+  private probeDockSettingsOnce(devices: any[]): void {
+    for (const device of devices) {
+      const duid = String(device?.duid ?? "");
+      if (!duid || this.dockSettingsProbed.has(duid)) continue;
+      this.dockSettingsProbed.add(duid);
+      const timer = setTimeout(() => {
+        if (!this.roborockAPI.supportsMopWash?.(duid)) return;
+        void this.roborockAPI
+          .probeDockSettings?.(duid)
+          ?.catch?.(() => undefined);
+      }, 60_000);
+      timer.unref?.();
     }
   }
 

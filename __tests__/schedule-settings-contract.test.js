@@ -20,7 +20,15 @@ describe("HomeKit schedule settings contract", () => {
 
     const items = schema.schema.properties.homeKitActionSwitches.items;
 
-    expect(items.enum).toEqual(["clean", "dock", "empty", "pause", "locate"]);
+    expect(items.enum).toEqual([
+      "clean",
+      "dock",
+      "empty",
+      "wash",
+      "dry",
+      "pause",
+      "locate",
+    ]);
 
     expect(items.oneOf.some((entry) => entry.enum?.[0] === "schedules")).toBe(
       false

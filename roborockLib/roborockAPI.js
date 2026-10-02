@@ -424,6 +424,10 @@ const SIMPLE_VACUUM_COMMANDS = new Set([
   "app_pause",
   "app_charge",
   "app_start_collect_dust",
+  "app_stop_collect_dust",
+  "app_start_wash",
+  "app_stop_wash",
+  "app_set_dryer_status",
   "find_me",
   "app_segment_clean_by_ids",
   "resume_segment_clean",
@@ -2853,11 +2857,40 @@ class Roborock {
     // an owner report, so none of them is here. Keep this set and
     // `processDockType()` in step — a code in one but not the other is a dock
     // that either offers a switch it cannot drive or hides one it can.
-    const autoEmptyDockTypes = new Set([1, 3, 5, 6, 7, 8, 9, 20]);
+    //
+    // 33 (upstream `shell_4p_dock`, the a225 P20 Ultra Plus) is here on its
+    // owner's word: the dock empties, washes and dries, plumbed water version.
+    const autoEmptyDockTypes = new Set([1, 3, 5, 6, 7, 8, 9, 20, 33]);
 
     return (
       autoEmptyDockTypes.has(dockType) ||
       this.hasVacuumFeature(duid, "isDustCollectionSettingSupported")
+    );
+  }
+
+  /**
+   * Whether the dock can wash the mop. Same rule as supportsDustCollection:
+   * dock codes whose owners have confirmed it, or the robot's own feature
+   * flag; keep in step with processDockType().
+   * @param {string} duid
+   */
+  supportsMopWash(duid) {
+    const dockType = Number(this.getVacuumDeviceStatus(duid, "dock_type"));
+    return (
+      new Set([2, 3, 6, 7, 8, 9, 33]).has(dockType) ||
+      this.hasVacuumFeature(duid, "isWashThenChargeCmdSupported")
+    );
+  }
+
+  /**
+   * Whether the dock can dry the mop.
+   * @param {string} duid
+   */
+  supportsMopDrying(duid) {
+    const dockType = Number(this.getVacuumDeviceStatus(duid, "dock_type"));
+    return (
+      new Set([3, 6, 7, 8, 9, 33]).has(dockType) ||
+      this.hasVacuumFeature(duid, "isSupportedDrying")
     );
   }
 
@@ -4849,6 +4882,32 @@ class Roborock {
     await this.startCommand(duid, "app_start_collect_dust", null, options);
   }
 
+  async app_start_wash(duid, options) {
+    await this.startCommand(duid, "app_start_wash", null, options);
+  }
+
+  async app_stop_wash(duid, options) {
+    await this.startCommand(duid, "app_stop_wash", null, options);
+  }
+
+  async app_start_drying(duid, options) {
+    await this.startCommand(
+      duid,
+      "app_set_dryer_status",
+      '{"status":1}',
+      options
+    );
+  }
+
+  async app_stop_drying(duid, options) {
+    await this.startCommand(
+      duid,
+      "app_set_dryer_status",
+      '{"status":0}',
+      options
+    );
+  }
+
   async find_me(duid, options) {
     await this.startCommand(duid, "find_me", null, options);
   }
@@ -6663,6 +6722,44 @@ class Roborock {
         `Map listener for ${duid} failed: ${error?.message || error}`
       );
     }
+  }
+
+  /**
+   * Read, once, every dock setting a washing dock is known to answer, and
+   * write the answers to the log. Read-only: it changes nothing. The point
+   * is to see this robot's own answer shapes before anything writes them —
+   * the public sources disagree on several (python-roborock, ioBroker).
+   * @param {string} duid
+   * @returns {Promise<Record<string, unknown>>}
+   */
+  async probeDockSettings(duid) {
+    const methods = [
+      "get_wash_towel_mode",
+      "get_wash_water_temperature",
+      "get_smart_wash_params",
+      "get_auto_delivery_cleaning_fluid",
+      "get_dust_collection_switch_status",
+      "get_dust_collection_mode",
+      "app_get_dryer_setting",
+    ];
+    const answers = {};
+    for (const method of methods) {
+      try {
+        answers[method] = await this.messageQueueHandler.sendRequest(
+          duid,
+          method,
+          [],
+          false
+        );
+      } catch (error) {
+        answers[method] =
+          `no answer: ${String(error?.message || error).slice(0, 80)}`;
+      }
+    }
+    this.log.info(
+      `Dock settings of ${this.describeDevice(duid)} (read only): ${JSON.stringify(answers)}`
+    );
+    return answers;
   }
 
   /**

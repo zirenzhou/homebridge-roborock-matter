@@ -1483,6 +1483,9 @@ class deviceFeatures {
       case 8: // PEARL: Q Revo, P10
       // Not much info on this one. Might be missing some features
       case 9: // Unknown codename for now: Q Revo Pro
+      // shell_4p_dock: a225 P20 Ultra Plus. Its owner confirmed the dock
+      // empties, washes and dries (plumbed water version).
+      case 33:
         this.isDustCollectionSettingSupported();
         this.isWashThenChargeCmdSupported();
         this.isSupportedDrying();

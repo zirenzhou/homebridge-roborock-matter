@@ -1,0 +1,111 @@
+"use strict";
+
+/**
+ * Optional buttons on the vacuum's own Matter node. Apple Home groups a
+ * node's endpoints together, so Empty Bin, Wash Mop and Dry Mop can sit with
+ * the robot instead of as accessories of their own. They are on/off
+ * endpoints with the HAP switches' momentary contract: a press runs the same
+ * command path and the button turns itself off again.
+ */
+
+const RoborockMatterVacuumAccessory =
+  require("../src/matter_vacuum_accessory").default;
+
+function harness(buttons, { dockType = 33 } = {}) {
+  const updates = [];
+  const api = {
+    getVacuumDeviceInfo: (_duid, property) =>
+      property === "name" ? "Vicky" : "",
+    getProductAttribute: () => "roborock.vacuum.a225",
+    getVacuumDeviceStatus: (_duid, property) =>
+      ({ state: 8, dock_type: dockType })[property] ?? "",
+    getRoomMappingsForDevice: () => [],
+    getMapListForDevice: () => [],
+    getCurrentMapIdForDevice: () => null,
+    getMatterCleanModeCapabilities: () => ({ canVacuum: true }),
+    app_start: jest.fn().mockResolvedValue(undefined),
+    app_stop: jest.fn().mockResolvedValue(undefined),
+    app_pause: jest.fn().mockResolvedValue(undefined),
+    app_charge: jest.fn().mockResolvedValue(undefined),
+    app_start_collect_dust: jest.fn().mockResolvedValue(undefined),
+    app_start_wash: jest.fn().mockResolvedValue(undefined),
+    app_start_drying: jest.fn().mockResolvedValue(undefined),
+    supportsDustCollection: () => dockType === 33,
+    supportsMopWash: () => dockType === 33,
+    supportsMopDrying: () => dockType === 33,
+    getStatus: jest.fn().mockResolvedValue(undefined),
+  };
+  const platform = {
+    platformConfig: {
+      enableMatterServiceArea: false,
+      enableMatterCleanMode: false,
+      matterDockButtons: buttons,
+    },
+    log: {
+      debug: jest.fn(),
+      info: jest.fn(),
+      warn: jest.fn(),
+      error: jest.fn(),
+    },
+    getMatterApi: () => ({
+      deviceTypes: { OnOffOutlet: "outlet-type" },
+      updateAccessoryState: async (uuid, cluster, attributes, partId) => {
+        updates.push({ cluster, attributes, partId });
+      },
+    }),
+    shouldAcceptUnscopedLiveMessage: () => true,
+    roborockAPI: api,
+  };
+  const accessory = { UUID: "uuid-1", context: { duid: "device-1" } };
+  const vacuum = new RoborockMatterVacuumAccessory(
+    platform,
+    accessory,
+    { duid: "device-1" },
+    true
+  );
+  return { vacuum, accessory, api, platform, updates };
+}
+
+afterEach(() => jest.useRealTimers());
+
+test("no buttons unless asked for", () => {
+  expect(harness(undefined).accessory.parts).toBeUndefined();
+  expect(harness([]).accessory.parts).toBeUndefined();
+});
+
+test("each chosen command becomes an on/off endpoint on the vacuum", () => {
+  const { accessory } = harness(["dry", "empty", "wash", "bogus"]);
+  expect(accessory.parts.map((part) => [part.id, part.displayName])).toEqual([
+    ["button-empty", "Vicky Empty Bin"],
+    ["button-wash", "Vicky Wash Mop"],
+    ["button-dry", "Vicky Dry Mop"],
+  ]);
+  for (const part of accessory.parts) {
+    expect(part.deviceType).toBe("outlet-type");
+    expect(part.clusters).toEqual({ onOff: { onOff: false } });
+  }
+});
+
+test("a press runs the command and the button turns itself off", async () => {
+  jest.useFakeTimers();
+  const { accessory, api, updates } = harness(["wash"]);
+  await accessory.parts[0].handlers.onOff.on();
+  await jest.advanceTimersByTimeAsync(0);
+  expect(api.app_start_wash).toHaveBeenCalledTimes(1);
+  await jest.advanceTimersByTimeAsync(1600);
+  expect(updates).toContainEqual({
+    cluster: "onOff",
+    attributes: { onOff: false },
+    partId: "button-wash",
+  });
+});
+
+test("a button the dock cannot do says so and sends nothing", async () => {
+  jest.useFakeTimers();
+  const { accessory, api, platform } = harness(["dry"], { dockType: 1 });
+  await accessory.parts[0].handlers.onOff.on();
+  expect(api.app_start_drying).not.toHaveBeenCalled();
+  expect(platform.log.warn).toHaveBeenCalledWith(
+    expect.stringContaining("does not support it")
+  );
+});

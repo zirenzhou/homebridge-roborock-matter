@@ -163,7 +163,7 @@
         "default": ["dock"],
         "items": {
           "type": "string",
-          "enum": ["clean", "dock", "empty", "pause", "locate"],
+          "enum": ["clean", "dock", "empty", "wash", "dry", "pause", "locate"],
           "oneOf": [
             {
               "title": "Start Cleaning",
@@ -176,6 +176,14 @@
             {
               "title": "Empty Bin (compatible auto-empty docks only)",
               "enum": ["empty"]
+            },
+            {
+              "title": "Wash Mop (washing docks only)",
+              "enum": ["wash"]
+            },
+            {
+              "title": "Dry Mop (drying docks only)",
+              "enum": ["dry"]
             },
             {
               "title": "Pause",
@@ -216,6 +224,23 @@
               "title": "Water Tank Empty (Closed while the robot reports no clean water)",
               "enum": ["waterTankEmpty"]
             }
+          ]
+        }
+      },
+      "matterDockButtons": {
+        "title": "Buttons on the Vacuum (Experimental)",
+        "description": "Adds on/off buttons to the vacuum's own Matter accessory, so Apple Home keeps them with the robot instead of as separate accessories. Each button runs its command and turns itself off again. Matter fixes an accessory's parts when it is paired: after changing this, restart, then remove the robot from Apple Home and pair it again. How Apple Home draws buttons next to a robot vacuum is not documented — if the tile misbehaves, clear this list and re-pair.",
+        "type": "array",
+        "uniqueItems": true,
+        "default": [],
+        "items": {
+          "type": "string",
+          "enum": ["dock", "empty", "wash", "dry"],
+          "oneOf": [
+            { "title": "Return to Dock", "enum": ["dock"] },
+            { "title": "Empty Bin", "enum": ["empty"] },
+            { "title": "Wash Mop", "enum": ["wash"] },
+            { "title": "Dry Mop", "enum": ["dry"] }
           ]
         }
       },

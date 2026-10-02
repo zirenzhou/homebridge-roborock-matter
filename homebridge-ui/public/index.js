@@ -19,9 +19,17 @@ const elements = {
   homeKitActionClean: document.getElementById("homekit-action-clean"),
   homeKitActionDock: document.getElementById("homekit-action-dock"),
   homeKitActionEmpty: document.getElementById("homekit-action-empty"),
+  homeKitActionWash: document.getElementById("homekit-action-wash"),
+  homeKitActionDry: document.getElementById("homekit-action-dry"),
   homeKitActionPause: document.getElementById("homekit-action-pause"),
   homeKitActionLocate: document.getElementById("homekit-action-locate"),
   enableMapCamera: document.getElementById("enable-map-camera"),
+  matterButtons: {
+    dock: document.getElementById("matter-button-dock"),
+    empty: document.getElementById("matter-button-empty"),
+    wash: document.getElementById("matter-button-wash"),
+    dry: document.getElementById("matter-button-dry"),
+  },
   mapCameraRotation: document.getElementById("map-camera-rotation"),
   mapCameraTheme: document.getElementById("map-camera-theme"),
   enableHomeKitStateSensors: document.getElementById(
@@ -85,11 +93,21 @@ const DEFAULT_TRANSIENT_WARNING_THROTTLE_HOURS = 6;
 
 // Kept in the same order as HOMEKIT_ACTION_KEYS in src/types.ts, so the form,
 // the saved config and the plugin all name these the same way.
-const ACTION_SWITCH_KEYS = ["clean", "dock", "empty", "pause", "locate"];
+const ACTION_SWITCH_KEYS = [
+  "clean",
+  "dock",
+  "empty",
+  "wash",
+  "dry",
+  "pause",
+  "locate",
+];
 const ACTION_SWITCH_ELEMENTS = {
   clean: () => elements.homeKitActionClean,
   dock: () => elements.homeKitActionDock,
   empty: () => elements.homeKitActionEmpty,
+  wash: () => elements.homeKitActionWash,
+  dry: () => elements.homeKitActionDry,
   pause: () => elements.homeKitActionPause,
   locate: () => elements.homeKitActionLocate,
 };
@@ -197,6 +215,12 @@ async function loadConfig() {
     }
     if (elements.enableMapCamera) {
       elements.enableMapCamera.checked = config.enableMapCamera === true;
+    }
+    const matterButtons = Array.isArray(config.matterDockButtons)
+      ? config.matterDockButtons
+      : [];
+    for (const [key, element] of Object.entries(elements.matterButtons)) {
+      if (element) element.checked = matterButtons.includes(key);
     }
     if (elements.mapCameraRotation) {
       elements.mapCameraRotation.value = String(
@@ -701,6 +725,9 @@ function getFormValues() {
     ),
     homeKitStateSensors: getSavedStateSensorSelection(),
     enableMapCamera: Boolean(elements.enableMapCamera?.checked),
+    matterDockButtons: Object.entries(elements.matterButtons)
+      .filter(([, element]) => element?.checked)
+      .map(([key]) => key),
     mapCameraRotation: Number(elements.mapCameraRotation?.value ?? 0) || 0,
     mapCameraTheme: elements.mapCameraTheme?.value || "auto",
     enableHomeKitScheduleSwitches: Boolean(

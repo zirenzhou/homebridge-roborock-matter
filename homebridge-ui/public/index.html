@@ -240,6 +240,26 @@
         >
       </label>
       <label class="checkbox">
+        <input id="homekit-action-wash" type="checkbox" disabled />
+        <span
+          >Wash Mop
+          <small
+            >Starts washing the mop at the dock. Hidden for docks that cannot
+            wash.</small
+          ></span
+        >
+      </label>
+      <label class="checkbox">
+        <input id="homekit-action-dry" type="checkbox" disabled />
+        <span
+          >Dry Mop
+          <small
+            >Starts drying the mop at the dock. Hidden for docks that cannot
+            dry.</small
+          ></span
+        >
+      </label>
+      <label class="checkbox">
         <input id="homekit-action-pause" type="checkbox" disabled />
         <span>Pause <small>Pauses the current clean.</small></span>
       </label>
@@ -336,6 +356,39 @@
           ></span
         >
       </label>
+    </div>
+
+    <label class="checkbox">
+      <span>
+        Buttons on the vacuum (experimental)
+        <small
+          >Puts the chosen commands on the robot's own Matter accessory, so the
+          Home app keeps them with the vacuum. After changing these, restart,
+          then remove the robot from the Home app and pair it again.</small
+        >
+      </span>
+    </label>
+    <div id="matter-dock-buttons" class="checkbox-group">
+      <label class="checkbox"
+        ><input id="matter-button-dock" type="checkbox" /><span
+          >Return to Dock</span
+        ></label
+      >
+      <label class="checkbox"
+        ><input id="matter-button-empty" type="checkbox" /><span
+          >Empty Bin</span
+        ></label
+      >
+      <label class="checkbox"
+        ><input id="matter-button-wash" type="checkbox" /><span
+          >Wash Mop</span
+        ></label
+      >
+      <label class="checkbox"
+        ><input id="matter-button-dry" type="checkbox" /><span
+          >Dry Mop</span
+        ></label
+      >
     </div>
 
     <label class="checkbox">

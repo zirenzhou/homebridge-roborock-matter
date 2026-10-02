@@ -27,7 +27,29 @@ type MatterAccessory = {
   clusters?: Record<string, Record<string, unknown>>;
   handlers?: Record<string, Record<string, unknown>>;
   getState?: (cluster: string, attribute: string) => Promise<unknown>;
+  parts?: MatterButtonPart[];
 };
+
+type MatterButtonPart = {
+  id: string;
+  displayName: string;
+  deviceType: unknown;
+  clusters: Record<string, Record<string, unknown>>;
+  handlers: Record<string, Record<string, unknown>>;
+};
+
+/** The commands that can be buttons on the vacuum's own node, and their names. */
+const MATTER_BUTTON_NAMES = {
+  dock: "Return to Dock",
+  empty: "Empty Bin",
+  wash: "Wash Mop",
+  dry: "Dry Mop",
+} as const;
+
+type MatterButtonKey = keyof typeof MATTER_BUTTON_NAMES;
+
+/** How long a pressed button shows On before it turns itself off. */
+const MATTER_BUTTON_RESET_MS = 1500;
 
 type MatterClusterState = Record<string, Record<string, unknown>>;
 
@@ -143,6 +165,16 @@ interface RoborockApi {
     options?: RoborockCommandOptions
   ): Promise<void>;
   supportsDustCollection?(duid: string): boolean;
+  app_start_wash?(
+    duid: string,
+    options?: RoborockCommandOptions
+  ): Promise<void>;
+  app_start_drying?(
+    duid: string,
+    options?: RoborockCommandOptions
+  ): Promise<void>;
+  supportsMopWash?(duid: string): boolean;
+  supportsMopDrying?(duid: string): boolean;
   find_me?(duid: string, options?: RoborockCommandOptions): Promise<void>;
   app_segment_clean_by_ids(
     duid: string,
@@ -1028,6 +1060,22 @@ export default class RoborockMatterVacuumAccessory {
       );
     }
 
+    if (action === "wash") {
+      return (
+        typeof this.api.app_start_wash === "function" &&
+        typeof this.api.supportsMopWash === "function" &&
+        this.api.supportsMopWash(this.getDuid())
+      );
+    }
+
+    if (action === "dry") {
+      return (
+        typeof this.api.app_start_drying === "function" &&
+        typeof this.api.supportsMopDrying === "function" &&
+        this.api.supportsMopDrying(this.getDuid())
+      );
+    }
+
     if (action === "locate") {
       return typeof this.api.find_me === "function";
     }
@@ -1483,6 +1531,12 @@ export default class RoborockMatterVacuumAccessory {
       case "empty":
         await this.emptyDustBin(HOME_SWITCH_SURFACE);
         return;
+      case "wash":
+        await this.runDockChore("wash", HOME_SWITCH_SURFACE);
+        return;
+      case "dry":
+        await this.runDockChore("dry", HOME_SWITCH_SURFACE);
+        return;
       case "pause":
         await this.pauseCleaning(HOME_SWITCH_SURFACE);
         return;
@@ -1583,6 +1637,12 @@ export default class RoborockMatterVacuumAccessory {
     this.accessory.context.duid = duid;
     this.accessory.clusters = this.buildClusters();
     this.accessory.handlers = this.buildHandlers();
+    const buttons = this.buildButtonParts();
+    if (buttons) {
+      this.accessory.parts = buttons;
+    } else {
+      delete this.accessory.parts;
+    }
     this.accessory.getState = async (cluster, attribute) => {
       const clusterState = this.buildCluster(cluster);
       return clusterState ? clusterState[attribute] : undefined;
@@ -2156,6 +2216,98 @@ export default class RoborockMatterVacuumAccessory {
           this.getDuid(),
           this.getMatterCommandOptions()
         ),
+      { surface }
+    );
+  }
+
+  /**
+   * Optional buttons on the vacuum's own Matter node — Return to Dock, Empty
+   * Bin, Wash Mop, Dry Mop — so Apple Home keeps them with the robot instead
+   * of as accessories of their own. Each is an on/off endpoint that runs its
+   * command when switched on and turns itself off again, the same momentary
+   * contract as the HAP switches. Matter fixes a node's endpoints when it is
+   * paired, so changing the list needs the robot removed and paired again.
+   */
+  private buildButtonParts(): MatterButtonPart[] | undefined {
+    const configured = this.platform.platformConfig.matterDockButtons;
+    if (!Array.isArray(configured) || configured.length === 0) {
+      return undefined;
+    }
+    const deviceType = this.platform.getMatterApi()?.deviceTypes?.OnOffOutlet;
+    if (!deviceType) {
+      return undefined;
+    }
+    const keys = (Object.keys(MATTER_BUTTON_NAMES) as MatterButtonKey[]).filter(
+      (key) => configured.includes(key)
+    );
+    if (keys.length === 0) {
+      return undefined;
+    }
+    return keys.map((key) => ({
+      id: `button-${key}`,
+      displayName: `${this.getVacuumName()} ${MATTER_BUTTON_NAMES[key]}`,
+      deviceType,
+      clusters: { onOff: { onOff: false } },
+      handlers: {
+        onOff: {
+          on: async () => this.pressButtonPart(key),
+          off: async () => undefined,
+        },
+      },
+    }));
+  }
+
+  private async pressButtonPart(key: MatterButtonKey): Promise<void> {
+    const reset = () => {
+      const matter = this.platform.getMatterApi();
+      void matter
+        ?.updateAccessoryState?.(
+          this.accessory.UUID,
+          "onOff",
+          { onOff: false },
+          `button-${key}`
+        )
+        ?.catch?.(() => undefined);
+    };
+    try {
+      if (!this.supportsHomeKitAction(key)) {
+        this.platform.log.warn(
+          `${this.getVacuumName()}'s ${MATTER_BUTTON_NAMES[key]} button was pressed, but this robot's dock does not support it.`
+        );
+        return;
+      }
+      await this.runHomeKitAction(key);
+    } finally {
+      unrefTimer(scheduleTimer(reset, MATTER_BUTTON_RESET_MS));
+    }
+  }
+
+  /**
+   * Washing or drying the mop: a dock job like emptying the bin, sent the same
+   * way so it shares the acknowledgement wait and the log line naming which
+   * surface asked.
+   */
+  private async runDockChore(
+    chore: "wash" | "dry",
+    surface: string
+  ): Promise<void> {
+    const [label, command] =
+      chore === "wash"
+        ? ["wash the mop", this.api.app_start_wash]
+        : ["dry the mop", this.api.app_start_drying];
+    if (typeof command !== "function") {
+      this.platform.log.warn(
+        `Not asking ${this.getVacuumName()}'s dock to ${label} from ${surfacePhrase(surface)}: the command is unavailable.`
+      );
+      return;
+    }
+    this.platform.log.info(
+      `Asking ${this.getVacuumName()}'s dock to ${label} from ${surfacePhrase(surface)}.`
+    );
+    this.dispatchRoborockMatterCommand(
+      label,
+      () =>
+        command.call(this.api, this.getDuid(), this.getMatterCommandOptions()),
       { surface }
     );
   }

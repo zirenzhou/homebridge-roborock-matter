@@ -52,6 +52,16 @@ export const ACTION_SWITCH_DEFINITIONS: readonly ActionSwitchDefinition[] = [
     summary: "starts the auto-empty dock while the robot is docked",
   },
   {
+    key: "wash",
+    nameSuffix: "Wash Mop",
+    summary: "starts washing the mop at a washing dock",
+  },
+  {
+    key: "dry",
+    nameSuffix: "Dry Mop",
+    summary: "starts drying the mop at a drying dock",
+  },
+  {
     key: "pause",
     nameSuffix: "Pause",
     summary: "pauses the current clean",
