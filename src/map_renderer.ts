@@ -35,6 +35,7 @@ const BLOCK = {
   OBSTACLES2: 15,
   CARPET_MAP: 17,
   MOP_PATH: 18,
+  DOOR_SILLS: 28,
   FLOOR_MAP: 24,
   FURNITURES: 25,
   FLOOR_DIRECTION: 32,
@@ -83,6 +84,8 @@ export type ClassicMap = {
   /** Four corners each, x0 y0 … x3 y3 in millimetres. */
   noGoZones: number[][];
   noMopZones: number[][];
+  /** Thresholds the robot climbs, four corners each (drawn yellow by the app). */
+  doorSills: number[][];
   /** Floor material by room id (FLOOR_MATERIAL codes). */
   floorMaterials: Map<number, number>;
   /** Plank direction by room id, degrees: 0 runs left–right, 90 top–bottom. */
@@ -127,6 +130,7 @@ export function parseClassicMap(buf: unknown): ClassicMap | null {
       virtualWalls: [],
       noGoZones: [],
       noMopZones: [],
+      doorSills: [],
       floorMaterials: new Map(),
       floorDirections: new Map(),
       carpet: null,
@@ -209,10 +213,15 @@ export function parseClassicMap(buf: unknown): ClassicMap | null {
         break;
       }
       case BLOCK.FORBIDDEN_ZONES:
-      case BLOCK.NO_MOP_ZONE: {
+      case BLOCK.NO_MOP_ZONE:
+      case BLOCK.DOOR_SILLS: {
         const count = buf.readUInt32LE(position + 8);
         const target =
-          type === BLOCK.FORBIDDEN_ZONES ? map.noGoZones : map.noMopZones;
+          type === BLOCK.FORBIDDEN_ZONES
+            ? map.noGoZones
+            : type === BLOCK.NO_MOP_ZONE
+              ? map.noMopZones
+              : map.doorSills;
         for (let i = 0; i < count && (i + 1) * 16 <= length; i++) {
           const zone: number[] = [];
           for (let j = 0; j < 8; j++) {
@@ -293,11 +302,14 @@ export function parseClassicMap(buf: unknown): ClassicMap | null {
           const corners: number[] = [];
           for (let j = 0; j < 8; j++)
             corners.push(buf.readUInt16LE(at + j * 2));
+          // Measured on a 2025 robot (a225): after the corners, a u16, then
+          // type, subtype, one more byte, the piece's id, and a flag. The
+          // ids run 1, 2, …; read one byte later they would all be 1.
           map.furniture.push({
             corners,
-            type: buf.readUInt8(at + 19),
-            subtype: buf.readUInt8(at + 20),
-            id: buf.readUInt8(at + 22),
+            type: buf.readUInt8(at + 18),
+            subtype: buf.readUInt8(at + 19),
+            id: buf.readUInt8(at + 21),
           });
         }
         break;

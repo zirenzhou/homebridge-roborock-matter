@@ -41,6 +41,7 @@ function block(type, headerExtra, payload) {
  * @param {[number, number][]} [spec.path]
  * @param {[number, number, number, number][]} [spec.virtualWalls]
  * @param {number[][]} [spec.noGoZones] eight numbers per zone
+ * @param {number[][]} [spec.doorSills] eight numbers per sill
  * @param {number[]} [spec.cleanedRooms]
  * @param {{x: number, y: number, type: number, confidence?: number, photoId?: string}[]} [spec.obstacles]
  * @param {(x: number, rowFromTop: number) => boolean} [spec.carpet]
@@ -101,6 +102,7 @@ function buildRRMap(spec) {
   };
   if (spec.virtualWalls) counted(10, spec.virtualWalls, 4);
   if (spec.noGoZones) counted(9, spec.noGoZones, 8);
+  if (spec.doorSills) counted(28, spec.doorSills, 8);
 
   if (spec.cleanedRooms) {
     const header = Buffer.alloc(4);
@@ -149,9 +151,10 @@ function buildRRMap(spec) {
     spec.furniture.forEach((f, i) => {
       const at = i * 23;
       f.corners.forEach((v, j) => payload.writeUInt16LE(v, at + j * 2));
-      payload.writeUInt8(f.type, at + 19);
-      payload.writeUInt8(f.subtype ?? 0, at + 20);
-      payload.writeUInt8(f.id ?? i + 1, at + 22);
+      payload.writeUInt8(f.type, at + 18);
+      payload.writeUInt8(f.subtype ?? 0, at + 19);
+      payload.writeUInt8(f.id ?? i + 1, at + 21);
+      payload.writeUInt8(1, at + 22);
     });
     const header = Buffer.alloc(4);
     header.writeUInt32LE(spec.furniture.length, 0);

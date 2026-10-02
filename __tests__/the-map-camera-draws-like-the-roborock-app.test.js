@@ -117,9 +117,14 @@ describe("the blocks beyond the floor plan", () => {
         furniture: [
           {
             corners: [5100, 5100, 5300, 5100, 5300, 5200, 5100, 5200],
-            type: 43,
+            type: 44,
+          },
+          {
+            corners: [5400, 5400, 5600, 5400, 5600, 5500, 5400, 5500],
+            type: 44,
           },
         ],
+        doorSills: [[5000, 5500, 5040, 5500, 5040, 5600, 5000, 5600]],
         cleanedRooms: [16],
         path: [
           [5100, 5100],
@@ -143,13 +148,13 @@ describe("the blocks beyond the floor plan", () => {
       photoId: "0017Q80vVl5VD5Gf",
     });
     expect(map.obstacles[1].photoId).toBeNull();
-    expect(map.furniture).toEqual([
-      {
-        corners: [5100, 5100, 5300, 5100, 5300, 5200, 5100, 5200],
-        type: 43,
-        subtype: 0,
-        id: 1,
-      },
+    // Laid out as measured on an a225: two pieces of one type, ids 1 and 2.
+    expect(map.furniture.map(({ type, id }) => ({ type, id }))).toEqual([
+      { type: 44, id: 1 },
+      { type: 44, id: 2 },
+    ]);
+    expect(map.doorSills).toEqual([
+      [5000, 5500, 5040, 5500, 5040, 5600, 5000, 5600],
     ]);
     expect(map.cleanedRooms).toEqual([16]);
     expect([...map.mopFlags]).toEqual([1, 0]);

@@ -364,7 +364,10 @@ function buildGeometry(map: ClassicMap): Geometry {
 
   const ids = [...roomCounts.keys()].sort((a, b) => a - b);
   const colours = colourRooms(ids, roomAt, width, height);
-  const rooms = ids.map((id, index) => {
+  // The app's badge is the room's own id on robots that number rooms from
+  // 1 (a225 measured), and counts from 1 on older ones that start at 16.
+  const numberOffset = ids.length > 0 && ids[0] >= 16 ? 15 : 0;
+  const rooms = ids.map((id) => {
     const mask = new Uint8Array(width * height);
     for (let i = 0; i < mask.length; i++) if (roomAt[i] === id) mask[i] = 1;
     // Grow each room into the walls around it so neighbouring fills meet
@@ -391,7 +394,7 @@ function buildGeometry(map: ClassicMap): Geometry {
     for (let i = 0; i < open.length; i++) if (occupied[i]) open[i] = 0;
     return {
       id,
-      number: index + 1,
+      number: id - numberOffset,
       color: colours.get(id) ?? 0,
       loops: outline(grown, 0.65),
       anchor:
@@ -572,6 +575,8 @@ export function renderSceneJpeg(
     drawRunScope(ctx, geometry, map.cleanedRooms, palette, px);
   }
 
+  drawDoorSills(ctx, map, px);
+
   flat();
   drawVirtualWalls(ctx, map, project, unit);
   drawObstacles(ctx, map, palette, project, unit);
@@ -698,27 +703,28 @@ function drawCarpet(
   px: (screen: number) => number
 ): void {
   if (geometry.carpet.length === 0) return;
-  ctx.save();
-  tracePath(ctx, geometry.carpet);
-  ctx.clip("nonzero");
-  // Cross-hatching, as the app marks a rug.
+  // As the app marks a rug: a darker patch of the room with rounded edges
+  // and a scatter of pile dots, in the ink of the room it lies in.
   const xs = geometry.carpet.flatMap((loop) => loop.map((p) => p[0]));
   const ys = geometry.carpet.flatMap((loop) => loop.map((p) => p[1]));
   const x0 = Math.min(...xs);
   const x1 = Math.max(...xs);
   const y0 = Math.min(...ys);
   const y1 = Math.max(...ys);
-  ctx.strokeStyle = rgba(palette.rooms[0].ink, palette.textureAlpha * 1.6);
-  ctx.lineWidth = px(1);
-  ctx.beginPath();
-  const span = y1 - y0;
-  for (let k = x0 - span; k < x1 + span; k += 2) {
-    ctx.moveTo(k, y0);
-    ctx.lineTo(k + span, y1);
-    ctx.moveTo(k, y1);
-    ctx.lineTo(k + span, y0);
+  ctx.save();
+  tracePath(ctx, geometry.carpet);
+  ctx.clip("nonzero");
+  for (let y = Math.floor(y0); y < y1; y += 3) {
+    for (let x = Math.floor(x0) + ((y / 3) % 2) * 1.5; x < x1; x += 3) {
+      const ink = inkAt(geometry, palette, x, y);
+      ctx.fillStyle = rgba(ink, 0.2);
+      ctx.fillRect(x - 1.5, y - 1.5, 3, 3);
+      ctx.fillStyle = rgba(ink, 0.32);
+      ctx.beginPath();
+      ctx.arc(x, y, px(1.3), 0, Math.PI * 2);
+      ctx.fill();
+    }
   }
-  ctx.stroke();
   ctx.restore();
 }
 
@@ -769,6 +775,23 @@ function insidePolygon(
     }
   }
   return inside;
+}
+
+/** The ink of the room at a grid point, or the neutral one off the rooms. */
+function inkAt(
+  geometry: Geometry,
+  palette: Palette,
+  x: number,
+  y: number
+): Rgb {
+  const gx = Math.floor(x);
+  const gy = Math.floor(y);
+  const id =
+    gx >= 0 && gy >= 0 && gx < geometry.width && gy < geometry.height
+      ? geometry.roomAt[gy * geometry.width + gx]
+      : 0;
+  const room = id ? geometry.rooms.find((r) => r.id === id) : undefined;
+  return room ? palette.rooms[room.color].ink : palette.subtitle;
 }
 
 /** The ink of the room a shape stands in. */
@@ -857,6 +880,29 @@ function drawZones(
     }
   }
   ctx.restore();
+}
+
+/** Thresholds, as the app's yellow bars. */
+function drawDoorSills(
+  ctx: any,
+  map: ClassicMap,
+  px: (screen: number) => number
+): void {
+  for (const sill of map.doorSills) {
+    ctx.beginPath();
+    for (let i = 0; i + 1 < sill.length; i += 2) {
+      const [x, y] = toGrid(map, sill[i], sill[i + 1]);
+      if (i === 0) ctx.moveTo(x, y);
+      else ctx.lineTo(x, y);
+    }
+    ctx.closePath();
+    ctx.fillStyle = "rgba(248,232,80,1)";
+    ctx.fill();
+    ctx.strokeStyle = "rgba(248,232,80,1)";
+    ctx.lineWidth = px(2.5);
+    ctx.lineJoin = "round";
+    ctx.stroke();
+  }
 }
 
 /** Virtual walls: a red line with the app's round "no entry" ends. */
@@ -989,7 +1035,14 @@ function drawRobot(
   ctx.restore();
 }
 
-type ObstacleGlyph = "shoe" | "cable" | "pet" | "poop" | "dot";
+type ObstacleGlyph =
+  | "shoe"
+  | "cable"
+  | "coil"
+  | "chair"
+  | "pet"
+  | "poop"
+  | "dot";
 
 /**
  * What the robot's obstacle recognition calls things. Codes from
@@ -1001,7 +1054,7 @@ export const OBSTACLE_TYPES: Record<
   { name: string; glyph: ObstacleGlyph }
 > = {
   0: { name: "线类", glyph: "cable" },
-  48: { name: "线团", glyph: "cable" },
+  48: { name: "线团", glyph: "coil" },
   1: { name: "宠物便便", glyph: "poop" },
   2: { name: "鞋子", glyph: "shoe" },
   3: { name: "底座", glyph: "dot" },
@@ -1011,8 +1064,8 @@ export const OBSTACLE_TYPES: Record<
   10: { name: "织物", glyph: "dot" },
   34: { name: "织物", glyph: "dot" },
   25: { name: "簸箕", glyph: "dot" },
-  26: { name: "易卡家具", glyph: "dot" },
-  27: { name: "易卡家具", glyph: "dot" },
+  26: { name: "易卡家具", glyph: "chair" },
+  27: { name: "易卡家具", glyph: "chair" },
   49: { name: "猫", glyph: "pet" },
   50: { name: "狗", glyph: "pet" },
   51: { name: "纸团", glyph: "dot" },
@@ -1115,6 +1168,38 @@ function drawGlyph(
         x + s * 0.9,
         y - s * 0.2
       );
+      ctx.stroke();
+      break;
+    case "coil":
+      // A coiled cable, as the app's "ℓℓ".
+      ctx.lineWidth = s * 0.22;
+      for (const dx of [-0.38, 0.38]) {
+        ctx.beginPath();
+        ctx.ellipse(
+          x + dx * s,
+          y - s * 0.12,
+          s * 0.3,
+          s * 0.5,
+          0.35,
+          Math.PI * 0.8,
+          Math.PI * 2.55
+        );
+        ctx.stroke();
+      }
+      ctx.beginPath();
+      ctx.moveTo(x - s * 0.95, y + s * 0.45);
+      ctx.lineTo(x + s * 0.95, y + s * 0.45);
+      ctx.stroke();
+      break;
+    case "chair":
+      // A chair in profile: back, seat, legs.
+      ctx.lineWidth = s * 0.22;
+      ctx.beginPath();
+      ctx.moveTo(x - s * 0.45, y - s * 0.85);
+      ctx.lineTo(x - s * 0.45, y + s * 0.8);
+      ctx.moveTo(x - s * 0.45, y + s * 0.05);
+      ctx.lineTo(x + s * 0.55, y + s * 0.05);
+      ctx.lineTo(x + s * 0.55, y + s * 0.8);
       ctx.stroke();
       break;
     case "poop":
