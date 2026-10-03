@@ -318,17 +318,32 @@ const MAX_PLUS_FAN_POWER_CLEAN_MODE: (typeof FAN_POWER_CLEAN_MODES)[number] = {
   extraTags: [RVC_CLEAN_MODE_TAG_DEEP_CLEAN],
 };
 
-// cleanModeNames "roborock": the suction levels carry the Roborock app's
-// names. Apple Home names a level after its tag and ignores the label, and
-// no standard tag means "standard" or "turbo". A tag with a MfgCode belongs to
-// that manufacturer's namespace, where the standard name no longer applies,
-// and the specification has a controller fall back to the label. The values
-// stay the standard ones: matter.js refuses a value outside the ModeTag enum
-// (ValueValidator "defined in enum"), and a controller that ignores MfgCode
-// shows exactly what it showed before. 0xFFF1 is the vendor Homebridge's
-// Matter nodes already announce.
+// cleanModeNames "roborock": all five Roborock levels in their own order, with
+// Automatic left to mean "keep the level the robot already has".
+//
+// Apple Home names a level after its tag and ignores both the label and a
+// MfgCode on the tag (tried 2 Oct 2026), and it lists the tags in one fixed
+// order whatever the mode ids are (mode probe, iOS 27, 3 Oct 2026):
+//   Vacation, Quiet, Quick, Night, Min, Max, Low Noise, Energy Saving,
+//   Deep Clean, Day, Automatic
+// A mode with no level tag is shown as Automatic. So Max and Max+ get the
+// tags whose names fit (Max, Deep Clean), and the three lower levels take the
+// slots in front of Max in order. Their names do not fit; their order does.
+// The Auto tag is left unused, so Automatic is only the plain mode, which
+// keeps the robot's own level. The labels carry the app's names for any
+// controller that shows labels, and the MfgCode stays for the same reason.
 const ROBOROCK_NAMES_MFG_CODE = 0xfff1;
+const RVC_CLEAN_MODE_TAG_NIGHT = 8;
+// The level tag each Roborock fan power gets under cleanModeNames "roborock".
+const ROBOROCK_LEVEL_TAGS: Readonly<Record<number, number>> = {
+  101: RVC_CLEAN_MODE_TAG_QUIET,
+  102: RVC_CLEAN_MODE_TAG_QUICK,
+  103: RVC_CLEAN_MODE_TAG_NIGHT,
+  104: RVC_CLEAN_MODE_TAG_MAX,
+  108: RVC_CLEAN_MODE_TAG_DEEP_CLEAN,
+};
 const SUCTION_LEVEL_TAGS = new Set([
+  RVC_CLEAN_MODE_TAG_NIGHT,
   RVC_CLEAN_MODE_TAG_AUTO,
   RVC_CLEAN_MODE_TAG_QUICK,
   RVC_CLEAN_MODE_TAG_QUIET,
@@ -3280,10 +3295,12 @@ export default class RoborockMatterVacuumAccessory {
           label:
             this.getRoborockSuctionName(powerMode.fanPower) ?? powerMode.label,
           mode: powerMode.mode,
-          modeTags: this.toModeTags([
-            RVC_CLEAN_MODE_TAG_VACUUM,
-            ...powerMode.extraTags,
-          ]),
+          modeTags: this.toModeTags(
+            this.withRoborockLevelTag(
+              [RVC_CLEAN_MODE_TAG_VACUUM, ...powerMode.extraTags],
+              powerMode.fanPower
+            )
+          ),
         });
       }
     }
@@ -3302,7 +3319,9 @@ export default class RoborockMatterVacuumAccessory {
         mode: extended.mode,
         modeTags: extended.vacuumThenMop
           ? extended.tags.map((value) => ({ value }))
-          : this.toModeTags(extended.tags),
+          : this.toModeTags(
+              this.withRoborockLevelTag(extended.tags, extended.fanPower)
+            ),
       });
     }
 
@@ -3319,6 +3338,21 @@ export default class RoborockMatterVacuumAccessory {
       return null;
     }
     return ROBOROCK_SUCTION_NAMES[fanPower] ?? null;
+  }
+
+  /** Swap the level tag for the Roborock ordering, when that is in use. */
+  private withRoborockLevelTag(
+    tags: ReadonlyArray<number>,
+    fanPower: number | null
+  ): number[] {
+    const levelTag =
+      this.useRoborockSuctionNames() && fanPower !== null
+        ? ROBOROCK_LEVEL_TAGS[fanPower]
+        : undefined;
+    if (levelTag === undefined) {
+      return [...tags];
+    }
+    return [...tags.filter((tag) => !SUCTION_LEVEL_TAGS.has(tag)), levelTag];
   }
 
   private toModeTags(

@@ -435,20 +435,15 @@
       <label class="field">
         <span>Suction level names</span>
         <select id="clean-mode-names">
-          <option value="apple">
-            Apple Home&rsquo;s (Quiet, Automatic, Quick, Max, Deep Clean)
-          </option>
-          <option value="roborock">
-            Roborock app&rsquo;s (安静, 标准, 强力, Max, Max+) &mdash;
-            experimental
-          </option>
+          <option value="apple">Apple Home&rsquo;s defaults</option>
+          <option value="roborock">All five Roborock levels, in order</option>
         </select>
         <small
-          >Apple Home names the levels after standard tags and ignores the
-          plugin&rsquo;s names. The Roborock names mark each level as a
-          manufacturer&rsquo;s own, which asks Apple Home to show the name
-          instead; whether it does is not yet known. Changing it needs the same
-          re-pair as above.</small
+          >Apple Home shows its own names in a fixed order. &ldquo;All five
+          Roborock levels&rdquo; maps 安静, 标准, 强力, Max, Max+ to Quiet,
+          Quick, Night, Max, Deep Clean so they appear in that order, and leaves
+          Automatic meaning &ldquo;keep the robot&rsquo;s current level&rdquo;.
+          Changing it needs the same re-pair as above.</small
         >
       </label>
     </div>

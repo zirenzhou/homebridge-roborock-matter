@@ -115,13 +115,16 @@
         ]
       },
       "cleanModeNames": {
-        "title": "Suction Level Names (experimental)",
-        "description": "apple: Apple Home names the levels after standard tags (Quiet, Automatic, Quick, Max, Deep Clean). roborock: the levels carry the Roborock app's names (安静, 标准, 强力, Max, Max+) on manufacturer-coded tags, which asks Apple Home to show the name instead. Needs one remove-and-re-pair.",
+        "title": "Suction Levels in Apple Home",
+        "description": "apple: Apple Home's defaults (Quiet, Automatic, Quick, Max, Deep Clean). roborock: all five Roborock levels in their own order, shown by Apple Home as Quiet, Quick, Night, Max, Deep Clean (Apple Home names levels itself and lists them in a fixed order), with Automatic keeping the robot's current level. Needs one remove-and-re-pair.",
         "type": "string",
         "default": "apple",
         "oneOf": [
-          { "title": "Apple Home's names", "enum": ["apple"] },
-          { "title": "Roborock app's names", "enum": ["roborock"] }
+          { "title": "Apple Home's defaults", "enum": ["apple"] },
+          {
+            "title": "All five Roborock levels, in order",
+            "enum": ["roborock"]
+          }
         ]
       },
       "enableMatterExtendedOperationalStates": {
