@@ -17,6 +17,20 @@ const STATUS_POLL_MIN_INTERVAL_MS = 60 * 1000;
 // nested blob big enough to bury the rest of the message.
 const MAX_REPORTED_STATUS_VALUE_LENGTH = 60;
 
+// The robot's own cleaning settings, as get_status reports them. A change to
+// any of them is logged (logCleanSettingChanges), so the code behind each
+// choice in the Roborock app can be read off the log by switching it there:
+// fan_power is 清扫吸力, water_box_mode 拖地水量, mop_mode 清洁效率 (the
+// route), seq_type 先扫后拖, repeat 清洁次数.
+const CLEAN_SETTING_FIELDS = Object.freeze([
+  "fan_power",
+  "water_box_mode",
+  "mop_mode",
+  "seq_type",
+  "repeat",
+  "distance_off",
+]);
+
 /**
  * The one list of caller options that travel with a request to the queue.
  *
@@ -616,6 +630,7 @@ class vacuum {
             method: "get_status",
             status: deviceStatus[0] || null,
           });
+          this.logCleanSettingChanges(duid, deviceStatus[0]);
 
           // MEASUREMENT, NOT A FEATURE — and deliberately so.
           //
@@ -1250,6 +1265,50 @@ class vacuum {
       },
       native: {},
     });
+  }
+
+  /**
+   * Log the robot's cleaning settings once as a baseline, then each change,
+   * whoever made it — the Roborock app, the robot, or this plugin.
+   * @param {string} duid
+   * @param {Record<string, unknown> | undefined} status
+   */
+  logCleanSettingChanges(duid, status) {
+    if (!status || typeof status !== "object") {
+      return;
+    }
+    if (!this.cleanSettingsSeen) {
+      this.cleanSettingsSeen = new Map();
+    }
+    const current = {};
+    for (const field of CLEAN_SETTING_FIELDS) {
+      if (status[field] !== undefined) {
+        current[field] = status[field];
+      }
+    }
+    const previous = this.cleanSettingsSeen.get(duid);
+    this.cleanSettingsSeen.set(duid, current);
+    const name = describeDevice(this.adapter, duid);
+    if (!previous) {
+      const baseline = Object.entries(current)
+        .map(([field, value]) => `${field}=${JSON.stringify(value)}`)
+        .join(", ");
+      this.adapter.log.info(`Cleaning settings of ${name}: ${baseline}.`);
+      return;
+    }
+    const changes = CLEAN_SETTING_FIELDS.filter(
+      (field) =>
+        field in current &&
+        JSON.stringify(previous[field]) !== JSON.stringify(current[field])
+    ).map(
+      (field) =>
+        `${field} ${JSON.stringify(previous[field])} → ${JSON.stringify(current[field])}`
+    );
+    if (changes.length > 0) {
+      this.adapter.log.info(
+        `Cleaning settings of ${name} changed: ${changes.join(", ")}.`
+      );
+    }
   }
 
   async parseDockingStationStatus(dss) {
