@@ -465,11 +465,11 @@ describe("suction levels named as in the Roborock app", () => {
       "Max",
       "Max+",
     ]);
-    // Apple Home lists Quiet, Quick, Night, Max, Deep Clean in that order,
+    // Apple Home lists Quiet, Quick, Min, Max, Deep Clean in that order,
     // and no mode carries the Auto tag: Automatic is the plain mode.
     expect(
       [3, 4, 5, 6, 7].map((id) => modes.get(id).modeTags[1].value)
-    ).toEqual([2, 1, 8, 7, 16384]);
+    ).toEqual([2, 1, 6, 7, 16384]);
     expect(modes.get(4).modeTags).toEqual([
       { value: VACUUM },
       { mfgCode: MFG, value: 1 },
@@ -493,7 +493,7 @@ describe("suction levels named as in the Roborock app", () => {
     expect(byMode.get(10).modeTags).toEqual([
       { value: VACUUM },
       { value: MOP },
-      { mfgCode: MFG, value: 8 },
+      { mfgCode: MFG, value: 6 },
     ]);
     const labels = modes.map((mode) => mode.label);
     expect(new Set(labels).size).toBe(labels.length);

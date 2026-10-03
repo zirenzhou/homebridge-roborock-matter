@@ -116,7 +116,7 @@
       },
       "cleanModeNames": {
         "title": "Suction Levels in Apple Home",
-        "description": "apple: Apple Home's defaults (Quiet, Automatic, Quick, Max, Deep Clean). roborock: all five Roborock levels in their own order, shown by Apple Home as Quiet, Quick, Night, Max, Deep Clean (Apple Home names levels itself and lists them in a fixed order), with Automatic keeping the robot's current level. Needs one remove-and-re-pair.",
+        "description": "apple: Apple Home's defaults (Quiet, Automatic, Quick, Max, Deep Clean). roborock: all five Roborock levels in their own order, shown by Apple Home as Quiet, Quick, Min, Max, Deep Clean (Apple Home names levels itself and lists them in a fixed order), with Automatic keeping the robot's current level. Needs one remove-and-re-pair.",
         "type": "string",
         "default": "apple",
         "oneOf": [

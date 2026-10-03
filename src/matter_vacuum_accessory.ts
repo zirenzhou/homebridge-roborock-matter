@@ -327,23 +327,24 @@ const MAX_PLUS_FAN_POWER_CLEAN_MODE: (typeof FAN_POWER_CLEAN_MODES)[number] = {
 //   Vacation, Quiet, Quick, Night, Min, Max, Low Noise, Energy Saving,
 //   Deep Clean, Day, Automatic
 // A mode with no level tag is shown as Automatic. So Max and Max+ get the
-// tags whose names fit (Max, Deep Clean), and the three lower levels take the
-// slots in front of Max in order. Their names do not fit; their order does.
+// tags whose names fit (Max, Deep Clean), and the three lower levels take
+// Quiet, Quick and Min, the slots in front of Max in order. Night sits between
+// Quick and Min too, and its owner found it the more confusing name.
 // The Auto tag is left unused, so Automatic is only the plain mode, which
 // keeps the robot's own level. The labels carry the app's names for any
 // controller that shows labels, and the MfgCode stays for the same reason.
 const ROBOROCK_NAMES_MFG_CODE = 0xfff1;
-const RVC_CLEAN_MODE_TAG_NIGHT = 8;
+const RVC_CLEAN_MODE_TAG_MIN = 6;
 // The level tag each Roborock fan power gets under cleanModeNames "roborock".
 const ROBOROCK_LEVEL_TAGS: Readonly<Record<number, number>> = {
   101: RVC_CLEAN_MODE_TAG_QUIET,
   102: RVC_CLEAN_MODE_TAG_QUICK,
-  103: RVC_CLEAN_MODE_TAG_NIGHT,
+  103: RVC_CLEAN_MODE_TAG_MIN,
   104: RVC_CLEAN_MODE_TAG_MAX,
   108: RVC_CLEAN_MODE_TAG_DEEP_CLEAN,
 };
 const SUCTION_LEVEL_TAGS = new Set([
-  RVC_CLEAN_MODE_TAG_NIGHT,
+  RVC_CLEAN_MODE_TAG_MIN,
   RVC_CLEAN_MODE_TAG_AUTO,
   RVC_CLEAN_MODE_TAG_QUICK,
   RVC_CLEAN_MODE_TAG_QUIET,
