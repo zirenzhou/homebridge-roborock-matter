@@ -422,3 +422,59 @@ describe("the Cleaning accessory in HAP", () => {
     }
   });
 });
+
+describe("settings the robot did not answer before a start", () => {
+  test("are sent again once it is moving", async () => {
+    jest.useFakeTimers();
+    try {
+      const { instance, applied } = createAccessory({
+        status: { state: 5, fan_power: 104, water_box_mode: 235 },
+      });
+      instance.registered = true;
+      const api = instance.api;
+      api.applyMatterCleanModeSettings = jest
+        .fn()
+        .mockResolvedValueOnce({
+          unconfirmedSettings: ["clean sequence", "suction level"],
+          cleanTypeConfirmed: false,
+        })
+        .mockResolvedValue({
+          unconfirmedSettings: [],
+          cleanTypeConfirmed: true,
+        });
+
+      await instance.applyCleanModeBeforeStarting(true);
+      expect(api.applyMatterCleanModeSettings).toHaveBeenCalledTimes(1);
+
+      await jest.advanceTimersByTimeAsync(21_000);
+      expect(api.applyMatterCleanModeSettings).toHaveBeenCalledTimes(2);
+
+      // Confirmed the second time: the later retry is not needed.
+      await jest.advanceTimersByTimeAsync(60_000);
+      expect(api.applyMatterCleanModeSettings).toHaveBeenCalledTimes(2);
+      expect(applied).toEqual([]);
+    } finally {
+      jest.useRealTimers();
+    }
+  });
+
+  test("are not sent again when the run is over", async () => {
+    jest.useFakeTimers();
+    try {
+      const { instance } = createAccessory({
+        status: { state: 8, fan_power: 104, water_box_mode: 235 },
+      });
+      instance.registered = true;
+      const api = instance.api;
+      api.applyMatterCleanModeSettings = jest.fn().mockResolvedValue({
+        unconfirmedSettings: ["clean sequence"],
+        cleanTypeConfirmed: false,
+      });
+      await instance.applyCleanModeBeforeStarting(true);
+      await jest.advanceTimersByTimeAsync(90_000);
+      expect(api.applyMatterCleanModeSettings).toHaveBeenCalledTimes(1);
+    } finally {
+      jest.useRealTimers();
+    }
+  });
+});

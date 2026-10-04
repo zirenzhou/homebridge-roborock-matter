@@ -1763,6 +1763,8 @@ export default class RoborockMatterVacuumAccessory {
    */
   dispose(): void {
     this.registered = false;
+    for (const timer of this.startSettingsRetryTimers) clearTimer(timer);
+    this.startSettingsRetryTimers = [];
     if (this.matterStateHeartbeatTimer) {
       clearTimer(this.matterStateHeartbeatTimer);
       this.matterStateHeartbeatTimer = null;
@@ -3953,7 +3955,11 @@ export default class RoborockMatterVacuumAccessory {
       // deliberate — the prep already warned, naming the settings it lost.
       if (prep && prep.cleanTypeConfirmed === false) {
         this.appliedCleanTypePin = null;
+        this.scheduleStartSettingsRetry(settings, cleanMode);
         return {};
+      }
+      if (prep?.unconfirmedSettings?.length) {
+        this.scheduleStartSettingsRetry(settings, cleanMode);
       }
 
       // Sent AND acknowledged, so this is known ground truth about the run
@@ -3967,6 +3973,7 @@ export default class RoborockMatterVacuumAccessory {
       // Nothing was confirmed, so nothing is known: the robot's own report is
       // the only signal there is about this run, and it keeps its authority.
       this.appliedCleanTypePin = null;
+      this.scheduleStartSettingsRetry(settings, cleanMode);
       this.platform.log.warn(
         `Unable to apply ${this.getCleanModeLabel(cleanMode)} mode to ${this.getVacuumName()} before starting; continuing with the start command. ${this.getErrorMessage(error)}`
       );
@@ -3974,6 +3981,63 @@ export default class RoborockMatterVacuumAccessory {
       this.selectedCleanModeNeedsApply = false;
     }
     return { repeatTimes: settings.repeatTimes };
+  }
+
+  private startSettingsRetryTimers: Array<ReturnType<typeof nodeSetTimeout>> =
+    [];
+
+  /**
+   * A robot asleep in its dock does not answer the settings sent just before
+   * a start, and then runs on whatever it had (measured on a P20 Ultra Plus:
+   * the sequence, water and suction commands went unconfirmed, the start went
+   * through, and the clean ran on the old suction). It is awake once it is
+   * moving, so the same settings are sent again twice during the first
+   * minute of the run, unless the mode was changed or the run is over.
+   */
+  private scheduleStartSettingsRetry(
+    settings: RoborockCleanModeSettings,
+    cleanMode: number
+  ): void {
+    for (const timer of this.startSettingsRetryTimers) clearTimer(timer);
+    this.startSettingsRetryTimers = [];
+    const applySettings = this.api.applyMatterCleanModeSettings;
+    if (typeof applySettings !== "function") return;
+
+    let done = false;
+    for (const delayMs of [20_000, 60_000]) {
+      const timer = scheduleTimer(() => {
+        if (
+          done ||
+          !this.registered ||
+          !this.isInCleaningRunMode(this.getOperationalState()) ||
+          this.getCurrentCleanMode() !== cleanMode
+        ) {
+          return;
+        }
+        void (async () => {
+          try {
+            const result = await applySettings.call(
+              this.api,
+              this.getDuid(),
+              settings,
+              this.getMatterCleanModeLiveCommandOptions()
+            );
+            if (!result?.unconfirmedSettings?.length) {
+              done = true;
+              this.platform.log.info(
+                `Applied ${this.getCleanModeLabel(cleanMode)} to ${this.getVacuumName()} after the run started, because the robot had not answered before it.`
+              );
+            }
+          } catch (error) {
+            this.platform.log.debug(
+              `Retrying the clean mode of ${this.getVacuumName()} failed: ${this.getErrorMessage(error)}`
+            );
+          }
+        })();
+      }, delayMs);
+      unrefTimer(timer);
+      this.startSettingsRetryTimers.push(timer);
+    }
   }
 
   private async withCleanModePrepTimeout<T>(promise: Promise<T>): Promise<T> {
