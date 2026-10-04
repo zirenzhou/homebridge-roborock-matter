@@ -82,6 +82,8 @@ export interface RoborockPlatformConfig extends PlatformConfig {
   vacuumAndMopOrder?: "together" | "vacuumFirst";
   cleanModeNames?: "apple" | "roborock";
   matterModeProbe?: boolean;
+  /** Per suction level: 清洁效率, 清洁次数 and 拖地水量 for cleans started from Apple Home. */
+  cleaningProfiles?: import("./cleaning_profiles").CleaningProfiles;
   enableMatterExtendedOperationalStates?: boolean;
   enableMatterChargingDockedStates?: boolean;
   enableMatterFaultReporting?: boolean;
@@ -93,6 +95,8 @@ export interface RoborockPlatformConfig extends PlatformConfig {
   homeKitActionSwitches?: string[];
   enableHomeKitStateSensors?: boolean;
   homeKitStateSensors?: string[];
+  /** Suction and mop-water sliders that work while the robot runs. */
+  enableHomeKitCleaningControls?: boolean;
   enableHomeKitScheduleSwitches?: boolean;
   enableHomeKitRoutineSwitches?: boolean;
   /** Buttons on the vacuum's own Matter node (re-pair after changing). */

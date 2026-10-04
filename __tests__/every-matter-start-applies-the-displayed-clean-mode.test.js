@@ -170,7 +170,7 @@ describe("the rule: every start applies the displayed clean mode", () => {
 
   test.each(START_ACTIONS)("'%s' applies the clean mode first", (action) => {
     const body = bodies.get(action);
-    expect(body).toContain("applyCleanModeBeforeStarting()");
+    expect(body).toContain("applyCleanModeBeforeStarting(");
   });
 
   test.each(NON_START_ACTIONS)("'%s' does not touch the mode", (action) => {
@@ -179,7 +179,7 @@ describe("the rule: every start applies the displayed clean mode", () => {
 
   test("the apply is not gated on the user having changed the mode", () => {
     const start = source.indexOf(
-      "private async applyCleanModeBeforeStarting()"
+      "private async applyCleanModeBeforeStarting("
     );
     expect(start).toBeGreaterThan(-1);
     const body = source.slice(start, source.indexOf("\n  }", start));
@@ -191,7 +191,7 @@ describe("the rule: every start applies the displayed clean mode", () => {
 
   test("no start path skips the apply by comparing against robot state", () => {
     const start = source.indexOf(
-      "private async applyCleanModeBeforeStarting()"
+      "private async applyCleanModeBeforeStarting("
     );
     const body = source.slice(start, source.indexOf("\n  }", start));
 

@@ -44,6 +44,12 @@ import RoborockMapCameraAccessory, {
   resolveFfmpegPath,
 } from "./map_camera_accessory";
 
+import RoborockCleaningControlsAccessory, {
+  CLEANING_CONTROLS_KIND,
+  CleaningControlsContext,
+  cleaningControlsUuidSeed,
+  isCleaningControlsAccessory,
+} from "./cleaning_controls_accessory";
 import RoborockPlatformLogger from "./logger";
 import {
   HomeKitActionKey,
@@ -134,6 +140,11 @@ export default class RoborockPlatform implements DynamicPlatformPlugin {
   /** Optional map cameras, keyed by vacuum duid. */
   private readonly mapCameras: Map<string, RoborockMapCameraAccessory> =
     new Map();
+  /** Optional suction / mop-water sliders, keyed by vacuum duid. */
+  private readonly cleaningControls: Map<
+    string,
+    RoborockCleaningControlsAccessory
+  > = new Map();
   /** Optional HAP schedule accessories, keyed by vacuum duid. */
   private readonly hapScheduleAccessories: Map<
     string,
@@ -261,6 +272,15 @@ export default class RoborockPlatform implements DynamicPlatformPlugin {
       for (const stateSensor of this.stateSensors.values()) {
         step("state sensor dispose", () => stateSensor.dispose());
       }
+
+      for (const controls of this.cleaningControls.values()) {
+        step("cleaning controls dispose", () => controls.dispose());
+      }
+
+      for (const timer of this.mapRunTimers?.values() ?? []) {
+        step("map beat stop", () => clearInterval(timer));
+      }
+      this.mapRunTimers?.clear();
 
       for (const schedule of this.hapScheduleAccessories.values()) {
         step("schedule shutdown", () => schedule.shutdown());
@@ -610,6 +630,7 @@ export default class RoborockPlatform implements DynamicPlatformPlugin {
       const knownDevices = Array.isArray(devices) ? devices : [];
       this.syncHapSchedules(knownDevices);
       this.syncActionSwitches(knownDevices);
+      this.syncCleaningControls(knownDevices);
       this.syncStateSensors(knownDevices);
       this.syncMapCameras(knownDevices);
       // After both syncs, so the count is the total a user has to find in
@@ -1216,6 +1237,7 @@ export default class RoborockPlatform implements DynamicPlatformPlugin {
       isActionSwitchAccessory(accessory) ||
       isStateSensorAccessory(accessory) ||
       isMapCameraAccessory(accessory) ||
+      isCleaningControlsAccessory(accessory) ||
       isHapScheduleAccessory(accessory) ||
       isHapRoutineAccessory(accessory)
     );
@@ -1561,6 +1583,110 @@ export default class RoborockPlatform implements DynamicPlatformPlugin {
     }
   }
 
+  /**
+   * One pair of sliders (suction, mop water) per robot while
+   * `enableHomeKitCleaningControls` is on. Same shape, and the same
+   * empty-account caution, as syncMapCameras.
+   */
+  private syncCleaningControls(devices: any[]): void {
+    const enabled = this.platformConfig.enableHomeKitCleaningControls === true;
+    const mine = this.accessories.filter((accessory) =>
+      isCleaningControlsAccessory(accessory)
+    );
+    if (!enabled && mine.length === 0) {
+      return;
+    }
+
+    const wanted = new Set<string>();
+    if (enabled) {
+      for (const device of devices) {
+        const duid = String(device?.duid ?? "");
+        if (!duid) continue;
+        if (this.roborockAPI.getVacuumDeviceInfo?.(duid, "pv") === "B01") {
+          continue;
+        }
+        wanted.add(duid);
+      }
+    }
+
+    const accountIsTrustworthy = devices.length > 0;
+    const obsolete = mine.filter((accessory) => {
+      const duid =
+        (accessory.context as Partial<CleaningControlsContext>).duid ?? "";
+      if (wanted.has(duid)) return false;
+      return !enabled || accountIsTrustworthy;
+    });
+    if (obsolete.length > 0) {
+      for (const accessory of obsolete) {
+        const duid =
+          (accessory.context as Partial<CleaningControlsContext>).duid ?? "";
+        this.log.info(
+          `Removing the '${accessory.displayName}' suction and mop-water controls; they are no longer enabled or their robot is gone.`
+        );
+        this.cleaningControls.get(duid)?.dispose();
+        this.cleaningControls.delete(duid);
+        const index = this.accessories.indexOf(accessory);
+        if (index >= 0) this.accessories.splice(index, 1);
+      }
+      this.api.unregisterPlatformAccessories(
+        HAP_PLUGIN_IDENTIFIER,
+        PLATFORM_NAME,
+        obsolete
+      );
+    }
+
+    for (const duid of wanted) {
+      const existing = this.cleaningControls.get(duid);
+      if (existing) {
+        existing.updateIdentity("");
+        continue;
+      }
+      this.addCleaningControls(duid);
+    }
+  }
+
+  private addCleaningControls(duid: string): void {
+    const name = "Cleaning";
+    const uuid = this.api.hap.uuid.generate(cleaningControlsUuidSeed(duid));
+    const context: CleaningControlsContext = {
+      kind: CLEANING_CONTROLS_KIND,
+      duid,
+    };
+
+    let accessory = this.accessories.find((cached) => cached.UUID === uuid);
+    const isNew = !accessory;
+    if (!accessory) {
+      accessory = new this.api.platformAccessory(
+        name,
+        uuid,
+        this.api.hap.Categories.FAN
+      );
+      this.accessories.push(accessory);
+    }
+    accessory.displayName = name;
+    accessory.context = { ...(accessory.context ?? {}), ...context };
+
+    const controls = new RoborockCleaningControlsAccessory(
+      this,
+      accessory,
+      duid,
+      () => this.matterVacuums.get(duid)
+    );
+    this.cleaningControls.set(duid, controls);
+
+    if (isNew) {
+      this.log.info(
+        `Adding the '${name}' controls — a suction slider and a mop-water slider that also work while the robot is running.`
+      );
+      this.api.registerPlatformAccessories(
+        HAP_PLUGIN_IDENTIFIER,
+        PLATFORM_NAME,
+        [accessory]
+      );
+    }
+    controls.refresh();
+  }
+
   private addMapCamera(duid: string, vacuumName: string): void {
     // What it shows, not which robot: see naming.ts.
     const name = "Map";
@@ -1584,8 +1710,12 @@ export default class RoborockPlatform implements DynamicPlatformPlugin {
       storagePath: this.api.user.storagePath(),
       ffmpegPath: resolveFfmpegPath(this.platformConfig.ffmpegPath),
       requestMap: () => {
+        const cleaning =
+          this.matterVacuums
+            .get(duid)
+            ?.getHomeKitStateSensorValue("cleaning") === true;
         void this.roborockAPI
-          .fetchMapForCamera?.(duid)
+          .fetchMapForCamera?.(duid, { cleaning })
           ?.catch?.(() => undefined);
       },
     });
@@ -1710,19 +1840,50 @@ export default class RoborockPlatform implements DynamicPlatformPlugin {
         .refreshLiveRoomForDevice?.(duid, {})
         ?.catch?.(() => undefined);
     }
+    this.followRunWithMap(duid, cleaning === true);
     if (camera.noteCleaning(cleaning)) {
       // The robot uploads its final map on the way back to the dock; give it
       // a moment rather than drawing the map from before the last room.
       const timer = setTimeout(
         () => {
           void this.roborockAPI
-            .fetchMapForCamera?.(duid)
+            .fetchMapForCamera?.(duid, { cleaning: true })
             ?.catch?.(() => undefined);
         },
         cleaning === false ? 20_000 : 5_000
       );
       timer.unref?.();
     }
+  }
+
+  private mapRunTimers?: Map<string, ReturnType<typeof setInterval>>;
+
+  /**
+   * While a run is on, ask for a fresh map on a fixed beat. The map used to
+   * be fetched only when the robot's status happened to change, so a quiet
+   * stretch of a clean left the picture frozen where the robot had been. The
+   * API throttles and single-flights, so this costs one request per beat.
+   */
+  private followRunWithMap(duid: string, cleaning: boolean): void {
+    this.mapRunTimers ??= new Map();
+    const running = this.mapRunTimers.get(duid);
+    if (!cleaning) {
+      if (running) {
+        clearInterval(running);
+        this.mapRunTimers.delete(duid);
+      }
+      return;
+    }
+    if (running) {
+      return;
+    }
+    const timer = setInterval(() => {
+      void this.roborockAPI
+        .refreshLiveRoomForDevice?.(duid, {})
+        ?.catch?.(() => undefined);
+    }, 15_000);
+    timer.unref?.();
+    this.mapRunTimers.set(duid, timer);
   }
 
   private removeStateSensors(accessories: PlatformAccessory[]): void {
@@ -1875,6 +2036,11 @@ export default class RoborockPlatform implements DynamicPlatformPlugin {
     if (this.stateSensors.size > 0) {
       parts.push(
         `${this.stateSensors.size} sensor${this.stateSensors.size === 1 ? "" : "s"}`
+      );
+    }
+    if (this.cleaningControls.size > 0) {
+      parts.push(
+        `${this.cleaningControls.size} suction and mop-water control${this.cleaningControls.size === 1 ? "" : "s"}`
       );
     }
     if (this.mapCameras.size > 0) {
@@ -2240,6 +2406,7 @@ export default class RoborockPlatform implements DynamicPlatformPlugin {
     vacuum.setStateListener(() => {
       this.refreshStateSensorsForRobot(duid);
       this.refreshMapCameraForRobot(duid);
+      this.cleaningControls.get(duid)?.refresh();
     });
     return vacuum;
   }

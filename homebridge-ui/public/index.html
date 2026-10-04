@@ -449,6 +449,28 @@
     </div>
 
     <label class="checkbox">
+      <input id="enable-cleaning-controls" type="checkbox" />
+      <span>
+        Suction and mop-water sliders
+        <small
+          >Adds a &ldquo;Cleaning&rdquo; accessory with a Suction slider and a
+          Mop Water slider. Apple Home does not let you change the cleaning mode
+          while the robot is running; these do, like the Roborock app.</small
+        >
+      </span>
+    </label>
+    <div class="checkbox-group" id="cleaning-profiles">
+      <span>Settings for each suction level</span>
+      <small
+        >Applied when a clean is started from the Home app (not to one already
+        running). &ldquo;Follow the Roborock app&rdquo; leaves that setting as
+        it is. Mop water only applies to the modes that mop; Max+ only vacuums.
+        No re-pair needed.</small
+      >
+      <div id="cleaning-profile-rows"></div>
+    </div>
+
+    <label class="checkbox">
       <input id="enable-map-camera" type="checkbox" />
       <span>
         Add a map camera

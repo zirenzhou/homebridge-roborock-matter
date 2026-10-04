@@ -24,6 +24,7 @@ const elements = {
   homeKitActionPause: document.getElementById("homekit-action-pause"),
   homeKitActionLocate: document.getElementById("homekit-action-locate"),
   enableMapCamera: document.getElementById("enable-map-camera"),
+  enableCleaningControls: document.getElementById("enable-cleaning-controls"),
   enableExtendedCleanModes: document.getElementById(
     "enable-extended-clean-modes"
   ),
@@ -230,6 +231,10 @@ async function loadConfig() {
     if (elements.enableMapCamera) {
       elements.enableMapCamera.checked = config.enableMapCamera === true;
     }
+    if (elements.enableCleaningControls) {
+      elements.enableCleaningControls.checked =
+        config.enableHomeKitCleaningControls === true;
+    }
     if (elements.enableExtendedCleanModes) {
       elements.enableExtendedCleanModes.checked =
         config.enableExtendedCleanModes === true;
@@ -251,6 +256,7 @@ async function loadConfig() {
       elements.cleanModeNames.value =
         config.cleanModeNames === "roborock" ? "roborock" : "apple";
     }
+    setCleaningProfileValues(config.cleaningProfiles);
     if (elements.vacuumAndMopOrder) {
       elements.vacuumAndMopOrder.value =
         config.vacuumAndMopOrder === "vacuumFirst" ? "vacuumFirst" : "together";
@@ -742,6 +748,95 @@ function pickFields(source, keys) {
   return picked;
 }
 
+const SUCTION_LEVELS = [
+  ["quiet", "Quiet (安静)"],
+  ["standard", "Standard (标准)"],
+  ["strong", "Strong (强力)"],
+  ["max", "Max"],
+  ["maxPlus", "Max+"],
+];
+
+function profileSelect(key, field, options) {
+  const select = document.createElement("select");
+  select.id = `profile-${key}-${field}`;
+  for (const [value, label] of options) {
+    const option = document.createElement("option");
+    option.value = value;
+    option.textContent = label;
+    select.appendChild(option);
+  }
+  return select;
+}
+
+/** One row per suction level: efficiency, passes, mop water. */
+function buildCleaningProfileRows() {
+  const container = document.getElementById("cleaning-profile-rows");
+  if (!container || container.childElementCount > 0) return;
+  const follow = ["follow", "Follow the Roborock app"];
+  const water = [follow];
+  for (let level = 1; level <= 30; level++) {
+    water.push([String(level), `Level ${level}`]);
+  }
+  for (const [key, label] of SUCTION_LEVELS) {
+    const row = document.createElement("div");
+    row.className = "field";
+    const title = document.createElement("span");
+    title.textContent = label;
+    row.appendChild(title);
+    row.appendChild(
+      profileSelect(key, "efficiency", [
+        follow,
+        ["standard", "Cleaning efficiency: Standard (标准)"],
+        ["fine", "Cleaning efficiency: Fine (精细)"],
+        ["fast", "Cleaning efficiency: Fast (高效动态)"],
+      ])
+    );
+    row.appendChild(
+      profileSelect(key, "repeat", [
+        follow,
+        ["1", "Passes: 1"],
+        ["2", "Passes: 2"],
+      ])
+    );
+    if (key !== "maxPlus") {
+      row.appendChild(profileSelect(key, "mopWater", water));
+    }
+    container.appendChild(row);
+  }
+}
+
+function setCleaningProfileValues(profiles) {
+  buildCleaningProfileRows();
+  for (const [key] of SUCTION_LEVELS) {
+    const profile = (profiles && profiles[key]) || {};
+    for (const field of ["efficiency", "repeat", "mopWater"]) {
+      const select = document.getElementById(`profile-${key}-${field}`);
+      if (select) {
+        const value = String(profile[field] ?? "follow");
+        select.value = [...select.options].some((o) => o.value === value)
+          ? value
+          : "follow";
+      }
+    }
+  }
+}
+
+/** Only levels that deviate from "follow" are saved. */
+function getCleaningProfileValues() {
+  const profiles = {};
+  for (const [key] of SUCTION_LEVELS) {
+    const profile = {};
+    for (const field of ["efficiency", "repeat", "mopWater"]) {
+      const value = document.getElementById(`profile-${key}-${field}`)?.value;
+      if (value && value !== "follow") {
+        profile[field] = field === "efficiency" ? value : Number(value);
+      }
+    }
+    if (Object.keys(profile).length > 0) profiles[key] = profile;
+  }
+  return profiles;
+}
+
 function getFormValues() {
   return {
     email: getEmail(),
@@ -767,6 +862,10 @@ function getFormValues() {
       elements.vacuumAndMopOrder?.value === "vacuumFirst"
         ? "vacuumFirst"
         : "together",
+    cleaningProfiles: getCleaningProfileValues(),
+    enableHomeKitCleaningControls: Boolean(
+      elements.enableCleaningControls?.checked
+    ),
     matterDockButtons: Object.entries(elements.matterButtons)
       .filter(([, element]) => element?.checked)
       .map(([key]) => key),

@@ -4,6 +4,7 @@ import RoborockPlatform from "./platform";
 import { getLiveMessageForThisAccessory } from "./live_message";
 import { HomeKitActionKey, HomeKitStateSensorKey } from "./types";
 import { clearTimer, scheduleTimer, unrefTimer } from "./timers";
+import { resolveCleaningProfile } from "./cleaning_profiles";
 
 const { getModelNameWithoutBrand } =
   require("../roborockLib/lib/deviceFeatures") as {
@@ -90,7 +91,17 @@ type RoborockCleanModeSettings = {
   waterBoxMode?: number | null;
   // 1 = vacuum the whole run first, then mop it; 0 = both at once.
   sequenceType?: number;
+  // 清洁效率 (mop_mode): 300 standard, 303 fine, 304 fast.
+  mopMode?: number;
+  // 清洁次数: 1 or 2 passes.
+  repeatTimes?: number;
+  // Send the whole set (type, suction, water, efficiency) in the one sequence
+  // command even when the run is not vacuum-then-mop, as the Roborock app does.
+  carryAllSettings?: boolean;
 };
+
+/** What a start's prep leaves for the start command itself. */
+type StartApplied = { repeatTimes?: number };
 
 type RoborockCommandOptions = {
   waitForResult?: boolean;
@@ -500,6 +511,8 @@ const EXTENDED_CLEAN_MODES: ReadonlyArray<{
 const ROBOROCK_FAN_POWER_OFF = 105;
 const ROBOROCK_FAN_POWER_BALANCED = 102;
 const ROBOROCK_WATER_BOX_OFF = 200;
+const ROBOROCK_FAN_POWER_MAX = 104;
+const ROBOROCK_FAN_POWER_MAX_PLUS = 108;
 const ROBOROCK_WATER_BOX_MILD = 201;
 
 /**
@@ -2129,12 +2142,15 @@ export default class RoborockMatterVacuumAccessory {
       this.dispatchRoborockMatterCommand(
         "service area clean",
         async () => {
-          await this.applyCleanModeBeforeStarting();
+          const applied = await this.applyCleanModeBeforeStarting(true);
           await this.loadMatterMapIfNeeded(duid, targetMapId);
           await this.api.app_segment_clean_by_ids(
             duid,
             areasToClean.map((area) => area.segmentId),
-            this.getMatterCommandOptions()
+            {
+              ...this.getMatterCommandOptions(),
+              ...(applied.repeatTimes ? { repeat: applied.repeatTimes } : {}),
+            }
           );
         },
         { surface }
@@ -2154,7 +2170,7 @@ export default class RoborockMatterVacuumAccessory {
     this.dispatchRoborockMatterCommand(
       "start",
       async () => {
-        await this.applyCleanModeBeforeStarting();
+        await this.applyCleanModeBeforeStarting(true);
         await this.api.app_start(duid, this.getMatterCommandOptions());
       },
       { surface }
@@ -3888,22 +3904,24 @@ export default class RoborockMatterVacuumAccessory {
     };
   }
 
-  private async applyCleanModeBeforeStarting(): Promise<void> {
+  private async applyCleanModeBeforeStarting(
+    withProfile = false
+  ): Promise<StartApplied> {
     const applySettings = this.api.applyMatterCleanModeSettings;
     if (typeof applySettings !== "function") {
       this.selectedCleanModeNeedsApply = false;
       this.appliedCleanTypePin = null;
-      return;
+      return {};
     }
 
     // Read the displayed mode ONCE. It is what is being promised to the user,
     // and the bookkeeping below has to record the same value that was sent.
     const cleanMode = this.getCurrentCleanMode();
-    const settings = this.getRoborockCleanModeSettings(cleanMode);
+    const settings = this.getRoborockCleanModeSettings(cleanMode, withProfile);
     if (!settings) {
       this.selectedCleanModeNeedsApply = false;
       this.appliedCleanTypePin = null;
-      return;
+      return {};
     }
 
     this.platform.log.info(
@@ -3935,7 +3953,7 @@ export default class RoborockMatterVacuumAccessory {
       // deliberate — the prep already warned, naming the settings it lost.
       if (prep && prep.cleanTypeConfirmed === false) {
         this.appliedCleanTypePin = null;
-        return;
+        return {};
       }
 
       // Sent AND acknowledged, so this is known ground truth about the run
@@ -3955,6 +3973,7 @@ export default class RoborockMatterVacuumAccessory {
     } finally {
       this.selectedCleanModeNeedsApply = false;
     }
+    return { repeatTimes: settings.repeatTimes };
   }
 
   private async withCleanModePrepTimeout<T>(promise: Promise<T>): Promise<T> {
@@ -3980,7 +3999,8 @@ export default class RoborockMatterVacuumAccessory {
   }
 
   private getRoborockCleanModeSettings(
-    cleanMode: number
+    cleanMode: number,
+    withProfile = false
   ): RoborockCleanModeSettings | null {
     const capabilities = this.getMatterCleanModeCapabilities();
     // Fan-power variants are vacuum-family modes with a pinned suction
@@ -4020,7 +4040,147 @@ export default class RoborockMatterVacuumAccessory {
           : this.getPreferredWaterBoxMode();
     }
 
+    if (withProfile) {
+      this.addCleaningProfile(settings, baseCleanMode, capabilities);
+    }
+
     return Object.keys(settings).length > 0 ? settings : null;
+  }
+
+  /**
+   * The settings page can pin 清洁效率, 清洁次数 and 拖地水量 to each suction
+   * level. Only what is set there is sent, and only to a robot that reports
+   * the setting at all (mop_mode, repeat, and distance_off for the 1…30 water
+   * scale), so a model without it is never sent a command it cannot take.
+   */
+  private addCleaningProfile(
+    settings: RoborockCleanModeSettings,
+    baseCleanMode: number,
+    capabilities: MatterCleanModeCapabilities
+  ): void {
+    const fanPower =
+      typeof settings.fanPower === "number"
+        ? settings.fanPower
+        : this.getNumberStatus("fan_power") ?? undefined;
+    const profile = resolveCleaningProfile(
+      this.platform.platformConfig.cleaningProfiles,
+      fanPower
+    );
+
+    if (
+      profile.mopMode !== undefined &&
+      this.getNumberStatus("mop_mode") !== null
+    ) {
+      settings.mopMode = profile.mopMode;
+    }
+    if (
+      profile.repeatTimes !== undefined &&
+      this.getNumberStatus("repeat") !== null
+    ) {
+      settings.repeatTimes = profile.repeatTimes;
+    }
+    if (
+      profile.waterBoxMode !== undefined &&
+      baseCleanMode !== CLEAN_MODE_VACUUM &&
+      capabilities.canControlWater &&
+      this.getNumberStatus("distance_off") !== null
+    ) {
+      settings.waterBoxMode = profile.waterBoxMode;
+    }
+  }
+
+  /**
+   * What the suction and mop-water sliders show: the robot's suction code, and
+   * its mop water as 0 (off) or 1 to 30, or null where it reports the water in
+   * some other scale.
+   */
+  getCleaningControlState(): {
+    fanPower: number | null;
+    waterLevel: number | null;
+  } {
+    const fanPower = this.getNumberStatus("fan_power");
+    const water = this.getNumberStatus("water_box_mode");
+    return {
+      fanPower:
+        fanPower !== null && fanPower !== ROBOROCK_FAN_POWER_OFF
+          ? fanPower
+          : null,
+      waterLevel:
+        water === ROBOROCK_WATER_BOX_OFF
+          ? 0
+          : water !== null && water >= 221 && water <= 250
+            ? water - 220
+            : null,
+    };
+  }
+
+  /**
+   * Change the suction level, running or not. Max+ only vacuums in the
+   * Roborock app (choosing it there turns the water off), so it does here too.
+   */
+  async setSuctionFanPower(fanPower: number): Promise<void> {
+    const state = this.getCleaningControlState();
+    const name = this.getVacuumName();
+    const settings: RoborockCleanModeSettings = { fanPower };
+    if (
+      fanPower === ROBOROCK_FAN_POWER_MAX_PLUS &&
+      state.waterLevel !== null &&
+      state.waterLevel > 0
+    ) {
+      settings.waterBoxMode = ROBOROCK_WATER_BOX_OFF;
+      settings.sequenceType = 0;
+      settings.carryAllSettings = true;
+    }
+    this.platform.log.info(
+      `Suction slider: ${name} to ${fanPower}${settings.waterBoxMode === ROBOROCK_WATER_BOX_OFF ? " (Max+ vacuums only, so the mop water goes off)" : ""}.`
+    );
+    await this.applyLiveSettings(settings, "suction");
+  }
+
+  /** Change the mop water (0 = off, 1 to 30), running or not. */
+  async setMopWaterLevel(level: number): Promise<void> {
+    const state = this.getCleaningControlState();
+    const name = this.getVacuumName();
+    const settings: RoborockCleanModeSettings = {
+      waterBoxMode: level <= 0 ? ROBOROCK_WATER_BOX_OFF : 220 + level,
+      carryAllSettings: true,
+    };
+    const sequence = this.getNumberStatus("seq_type");
+    if (sequence !== null) settings.sequenceType = sequence === 1 ? 1 : 0;
+    if (state.fanPower !== null) {
+      // Max+ does not mop: the robot app lowers it, so this does too.
+      settings.fanPower =
+        level > 0 && state.fanPower === ROBOROCK_FAN_POWER_MAX_PLUS
+          ? ROBOROCK_FAN_POWER_MAX
+          : state.fanPower;
+    }
+    this.platform.log.info(
+      `Mop water slider: ${name} to ${level <= 0 ? "off" : `level ${level}`}.`
+    );
+    await this.applyLiveSettings(settings, "mop water");
+  }
+
+  private async applyLiveSettings(
+    settings: RoborockCleanModeSettings,
+    what: string
+  ): Promise<void> {
+    const applySettings = this.api.applyMatterCleanModeSettings;
+    if (typeof applySettings !== "function") {
+      throw new Error("Roborock clean-mode control is unavailable.");
+    }
+    const result = await applySettings.call(
+      this.api,
+      this.getDuid(),
+      settings,
+      {
+        ...this.getMatterCleanModeLiveCommandOptions(),
+      }
+    );
+    if (result?.unconfirmedSettings?.length) {
+      throw new Error(
+        `Roborock did not confirm the ${result.unconfirmedSettings.join(" and ")}.`
+      );
+    }
   }
 
   private rememberCurrentRoborockCleanModeSettings(): void {

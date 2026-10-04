@@ -94,6 +94,11 @@ const LOCAL_MUTE_TIMEOUT_LIMIT = 3;
 // modest while making the room track the robot closely enough to be useful.
 const B01_LIVE_ROOM_MIN_FETCH_GAP_MS = 10000;
 
+// While the robot is out cleaning, a map request that tripped the breaker is
+// tried again after this long rather than after the six-hour cooldown. The
+// silence that opened it was usually the robot asleep in its dock.
+const MAP_RETRY_DURING_RUN_MS = 2 * 60 * 1000;
+
 // A live-room fetch that keeps failing is a channel that is down for this
 // robot, not a lost frame. The request is heavy, it always rides the cloud
 // (get_map_v1 is a secure request), and every failure costs a full request
@@ -3231,7 +3236,9 @@ class Roborock {
       const liveSequence = Number(this.getVacuumDeviceStatus(duid, "seq_type"));
       const wanted = settings.sequenceType === 1 ? 1 : 0;
       const needed =
-        wanted === 1 || (Number.isInteger(liveSequence) && liveSequence === 1);
+        settings.carryAllSettings === true ||
+        wanted === 1 ||
+        (Number.isInteger(liveSequence) && liveSequence === 1);
       const command = "app_set_clean_sequence_type";
       const unsupported = this.matterUnsupportedSettingCommands.has(
         this.getMatterSettingCommandKey(duid, command)
@@ -3248,7 +3255,11 @@ class Roborock {
             ...(Number.isInteger(settings.waterBoxMode)
               ? { water_box_mode: settings.waterBoxMode }
               : {}),
-            mop_mode: mopMode >= 300 && mopMode < 400 ? mopMode : 300,
+            mop_mode: Number.isInteger(settings.mopMode)
+              ? settings.mopMode
+              : mopMode >= 300 && mopMode < 400
+                ? mopMode
+                : 300,
           };
           try {
             await this.runMatterSettingCommand(
@@ -3326,6 +3337,46 @@ class Roborock {
             `Matter clean mode fan command failed for ${duid}; continuing with start command. ${error.message || error}`
           );
         }
+      }
+    }
+
+    // 清洁效率 and 清洁次数, when the settings page pins them to this level.
+    // The sequence command above already carried the efficiency.
+    const extras = [
+      {
+        label: "cleaning efficiency",
+        command: "set_mop_mode",
+        value: settings?.mopMode,
+        skip: sequenceApplied,
+      },
+      {
+        label: "cleaning count",
+        command: "set_clean_repeat_times",
+        value: settings?.repeatTimes,
+        skip: false,
+      },
+    ];
+    for (const extra of extras) {
+      if (!Number.isInteger(extra.value) || extra.skip) continue;
+      const extraOptions = takeCommandOptions(extra.label);
+      if (!extraOptions) continue;
+      try {
+        await this.runMatterSettingCommand(
+          duid,
+          extra.command,
+          extra.value,
+          extraOptions
+        );
+      } catch (error) {
+        this.rememberUnsupportedMatterSettingCommand(
+          duid,
+          extra.command,
+          error
+        );
+        unconfirmedSettings.push(extra.label);
+        this.log.debug(
+          `Matter ${extra.label} command failed for ${duid}; continuing with start command. ${error.message || error}`
+        );
       }
     }
 
@@ -6769,7 +6820,11 @@ class Roborock {
     // every ten seconds of every clean. Measured before this existed: 95
     // failures in a row on my own a70, 225 twelve days earlier, 40 on the
     // a75 in #9.
-    if (this.unansweredMethods.shouldSkip(duid, "get_map_v1")) {
+    if (
+      this.unansweredMethods.shouldSkip(duid, "get_map_v1", {
+        maxWaitMs: MAP_RETRY_DURING_RUN_MS,
+      })
+    ) {
       return liveState.current;
     }
     this.unansweredMethods.govern(duid, "get_map_v1");
@@ -6994,7 +7049,8 @@ class Roborock {
    * @param {string} duid
    * @returns {Promise<boolean>} whether a map was delivered
    */
-  async fetchMapForCamera(duid) {
+  async fetchMapForCamera(duid, options = {}) {
+    const cleaning = options.cleaning === true;
     if (!this.config.enableMapCamera) {
       return false;
     }
@@ -7010,10 +7066,20 @@ class Roborock {
     if (inflight) {
       return inflight;
     }
-    if (this.unansweredMethods.shouldSkip(duid, "get_map_v1")) {
+    if (
+      this.unansweredMethods.shouldSkip(
+        duid,
+        "get_map_v1",
+        cleaning ? { maxWaitMs: MAP_RETRY_DURING_RUN_MS } : {}
+      )
+    ) {
       return false;
     }
     this.unansweredMethods.govern(duid, "get_map_v1");
+    const silencesBefore = this.unansweredMethods.failureCount(
+      duid,
+      "get_map_v1"
+    );
 
     const fetch = (async () => {
       try {
@@ -7031,6 +7097,11 @@ class Roborock {
         return true;
       } catch (error) {
         this.noteMethodUnanswered(duid, "get_map_v1", error);
+        if (!cleaning) {
+          // Asked of a robot that is not out cleaning: not answering is what
+          // a sleeping robot does, so it is not held against it.
+          this.unansweredMethods.forgive(duid, "get_map_v1", silencesBefore);
+        }
         this.log.debug(
           `Map fetch for the camera of ${this.describeDevice(duid)} failed: ${error?.message || error}`
         );

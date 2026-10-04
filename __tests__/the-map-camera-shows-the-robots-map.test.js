@@ -369,7 +369,8 @@ describe("the platform", () => {
       expect(platform.roborockAPI.fetchMapForCamera).not.toHaveBeenCalled();
       jest.advanceTimersByTime(20_000);
       expect(platform.roborockAPI.fetchMapForCamera).toHaveBeenCalledWith(
-        "duid-1"
+        "duid-1",
+        { cleaning: true }
       );
     } finally {
       jest.useRealTimers();

@@ -195,12 +195,20 @@ class UnansweredMethodBreaker {
    * @param {string} method
    * @returns {boolean}
    */
-  shouldSkip(duid, method) {
+  shouldSkip(duid, method, options = {}) {
     const entry = this.entries.get(this.key(duid, method));
     if (!entry || entry.retryAt === 0) {
       return false;
     }
-    if (this.now() >= entry.retryAt) {
+    // A caller that knows the robot is awake and mid-run does not wait out
+    // the whole cooldown: the silence that opened the breaker was most likely
+    // the robot asleep in its dock, and a map that stays frozen for the
+    // length of a clean is the cost of believing it.
+    const retryAt =
+      typeof options.maxWaitMs === "number"
+        ? Math.min(entry.retryAt, entry.openedAt + options.maxWaitMs)
+        : entry.retryAt;
+    if (this.now() >= retryAt) {
       // Let one request through. The counter is kept, so a robot that is
       // still silent trips again on its very next failure rather than
       // needing another six.
@@ -208,6 +216,46 @@ class UnansweredMethodBreaker {
       return false;
     }
     return true;
+  }
+
+  /**
+   * How many silences are counted against a method right now.
+   *
+   * @param {string} duid
+   * @param {string} method
+   * @returns {number}
+   */
+  failureCount(duid, method) {
+    return this.entries.get(this.key(duid, method))?.failures ?? 0;
+  }
+
+  /**
+   * Take back the silences counted since the count was `keep`.
+   *
+   * For a request sent while the robot was asleep in its dock: it does not
+   * answer then, and that says nothing about whether it answers mid-run, so
+   * those must not add up to a breaker that is already open when a clean
+   * begins. Measured on a P20 Ultra Plus: the map camera's tile refreshes
+   * while docked piled up timeouts, and the map stayed frozen from the
+   * moment the robot left the dock.
+   *
+   * @param {string} duid
+   * @param {string} method
+   * @param {number} keep the count before the request was sent
+   * @returns {void}
+   */
+  forgive(duid, method, keep) {
+    const key = this.key(duid, method);
+    const entry = this.entries.get(key);
+    if (!entry || entry.failures <= keep) {
+      return;
+    }
+    entry.failures = Math.max(0, keep);
+    if (entry.failures === 0) {
+      this.entries.delete(key);
+    } else if (entry.failures < this.openAfter) {
+      entry.retryAt = 0;
+    }
   }
 
   /**
